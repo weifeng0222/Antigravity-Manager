@@ -109,6 +109,9 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ onClose 
       console.error('Auto update failed:', errorMsg);
       setUpdateState('error');
       showToast(`${t('update_notification.toast.failed')}: ${errorMsg}`, 'error');
+      if (!isVisible) {
+        onClose();
+      }
     }
   };
 
@@ -126,7 +129,7 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ onClose 
     setTimeout(onClose, 400);
   };
 
-  if (updateState === 'none') {
+  if (updateState === 'none' || (!isVisible && !isClosing)) {
     return null;
   }
 
@@ -135,7 +138,7 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ onClose 
       className={`
         fixed top-6 right-6 z-[100]
         transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]
-        ${isVisible && !isClosing ? 'translate-y-0 opacity-100 scale-100' : '-translate-y-4 opacity-0 scale-95'}
+        ${isVisible && !isClosing ? 'translate-y-0 opacity-100 scale-100 pointer-events-auto' : '-translate-y-4 opacity-0 scale-95 pointer-events-none'}
       `}
     >
       <div className="

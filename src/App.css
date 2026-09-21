@@ -2,19 +2,228 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Override dark background utilities so enabled switches remain distinct. */
-.dark input.toggle[type="checkbox"]:checked {
-  background-color: var(--app-toggle-active, #3b82f6);
-  border-color: var(--app-toggle-active, #3b82f6);
+/* ==========================================================================
+   DaisyUI 5 + Tailwind 3 兼容层补丁 (解决 [object Object] 语法错误导致的样式丢失)
+   ========================================================================== */
+
+/* 1. Modal 弹窗修复 (解决 .modal.modal-open 缺失导致的不可见与点击穿透问题) */
+.modal {
+  position: fixed;
+  inset: 0;
+  margin: 0;
+  display: grid;
+  height: 100%;
+  max-height: none;
+  width: 100%;
+  max-width: none;
+  align-items: center;
+  justify-items: center;
+  background-color: rgba(0, 0, 0, 0.45);
+  padding: 0;
+  color: inherit;
+  transition: opacity 0.2s ease-out, visibility 0.2s ease-out;
+  overflow: clip;
+  overscroll-behavior: contain;
+  z-index: 1000;
 }
 
-.dark input.toggle[type="checkbox"]:checked::before {
-  background-color: #ffffff;
+.modal.modal-open,
+.modal[open],
+.modal:target {
+  pointer-events: auto !important;
+  visibility: visible !important;
+  opacity: 1 !important;
 }
 
-.dark input.toggle.toggle-success { --app-toggle-active: #16a34a; }
-.dark input.toggle.toggle-warning { --app-toggle-active: #d97706; }
-.dark input.toggle.toggle-error { --app-toggle-active: #dc2626; }
+.modal:not(.modal-open):not([open]):not(:target) {
+  pointer-events: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+}
+
+.modal-box {
+  max-height: calc(100vh - 5em);
+  grid-column-start: 1;
+  grid-row-start: 1;
+  width: 91.666667%;
+  max-width: 32rem;
+  border-radius: 1rem;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  z-index: 10;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+/* 2. Toggle 开关组件深度修复 (解决错位、缺失滑块与 DaisyUI 5 Grid 干扰) */
+.toggle,
+input.toggle[type="checkbox"] {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  position: relative !important;
+  display: inline-block !important;
+  box-sizing: border-box !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  vertical-align: middle !important;
+  border-radius: 9999px !important;
+  cursor: pointer !important;
+  background-color: #cbd5e1;
+  border: 1px solid #94a3b8;
+  transition: background-color 0.2s ease, border-color 0.2s ease !important;
+  /* 彻底消除 DaisyUI 5 异常的 Grid 与 place-content 居中偏移 */
+  grid-template-columns: none !important;
+  place-content: unset !important;
+  justify-content: unset !important;
+  align-content: unset !important;
+  flex-shrink: 0 !important;
+}
+
+.dark .toggle,
+.dark input.toggle[type="checkbox"] {
+  background-color: #334155;
+  border-color: #475569;
+}
+
+/* 激活状态背景色 */
+.toggle:checked,
+input.toggle[type="checkbox"]:checked {
+  background-color: var(--app-toggle-active, #3b82f6) !important;
+  border-color: var(--app-toggle-active, #3b82f6) !important;
+}
+
+.toggle.toggle-primary:checked,
+input.toggle.toggle-primary:checked { --app-toggle-active: #3b82f6; }
+
+.toggle.toggle-success:checked,
+input.toggle.toggle-success:checked { --app-toggle-active: #16a34a; }
+
+.toggle.toggle-warning:checked,
+input.toggle.toggle-warning:checked { --app-toggle-active: #d97706; }
+
+.toggle.toggle-error:checked,
+input.toggle.toggle-error:checked   { --app-toggle-active: #dc2626; }
+
+/* 禁用与焦点样式 */
+.toggle:disabled,
+input.toggle[type="checkbox"]:disabled {
+  cursor: not-allowed !important;
+  opacity: 0.45 !important;
+}
+
+.toggle:focus-visible,
+input.toggle[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--app-toggle-active, #3b82f6) !important;
+  outline-offset: 2px !important;
+}
+
+/* 滑块 (Thumb) 基础与绝对定位：彻底杜绝左右错位与溢出，精准 1px 对称留白 */
+.toggle::before,
+input.toggle[type="checkbox"]::before {
+  content: "" !important;
+  position: absolute !important;
+  top: 50% !important;
+  left: 1px !important; /* 精准 1px 边距 */
+  border-radius: 50% !important;
+  background-color: #ffffff !important;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.25) !important;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  pointer-events: none !important;
+  box-sizing: border-box !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  display: block !important;
+}
+
+/* 尺寸适配 1: 默认 (Default, 48px * 24px, thumb 20px) */
+.toggle,
+input.toggle[type="checkbox"] {
+  width: 3rem !important;
+  height: 1.5rem !important;
+}
+
+.toggle::before,
+input.toggle[type="checkbox"]::before {
+  width: 1.25rem !important;
+  height: 1.25rem !important;
+  left: 1px !important;
+  transform: translateY(-50%) !important;
+}
+
+.toggle:checked::before,
+input.toggle[type="checkbox"]:checked::before {
+  transform: translate(calc(3rem - 1.25rem - 2px), -50%) !important;
+}
+
+/* 尺寸适配 2: 小尺寸 (toggle-sm, 36px * 20px, thumb 16px) */
+.toggle.toggle-sm,
+input.toggle.toggle-sm[type="checkbox"] {
+  width: 2.25rem !important;
+  height: 1.25rem !important;
+}
+
+.toggle.toggle-sm::before,
+input.toggle.toggle-sm[type="checkbox"]::before {
+  width: 1rem !important;
+  height: 1rem !important;
+  left: 1px !important;
+  transform: translateY(-50%) !important;
+}
+
+.toggle.toggle-sm:checked::before,
+input.toggle.toggle-sm[type="checkbox"]:checked::before {
+  transform: translate(calc(2.25rem - 1rem - 2px), -50%) !important;
+}
+
+/* 尺寸适配 3: 超小尺寸 (toggle-xs, 28px * 16px, thumb 12px) */
+.toggle.toggle-xs,
+input.toggle.toggle-xs[type="checkbox"] {
+  width: 1.75rem !important;
+  height: 1rem !important;
+}
+
+.toggle.toggle-xs::before,
+input.toggle.toggle-xs[type="checkbox"]::before {
+  width: 0.75rem !important;
+  height: 0.75rem !important;
+  left: 1px !important;
+  transform: translateY(-50%) !important;
+}
+
+.toggle.toggle-xs:checked::before,
+input.toggle.toggle-xs[type="checkbox"]:checked::before {
+  transform: translate(calc(1.75rem - 0.75rem - 2px), -50%) !important;
+}
+
+/* 尺寸适配 4: 大尺寸 (toggle-lg, 56px * 32px, thumb 26px) */
+.toggle.toggle-lg,
+input.toggle.toggle-lg[type="checkbox"] {
+  width: 3.5rem !important;
+  height: 2rem !important;
+}
+
+.toggle.toggle-lg::before,
+input.toggle.toggle-lg[type="checkbox"]::before {
+  width: 1.625rem !important;
+  height: 1.625rem !important;
+  left: 1px !important;
+  transform: translateY(-50%) !important;
+}
+
+.toggle.toggle-lg:checked::before,
+input.toggle.toggle-lg[type="checkbox"]:checked::before {
+  transform: translate(calc(3.5rem - 1.625rem - 2px), -50%) !important;
+}
 
 /* 禁止过度滚动和橡皮筋效果 */
 html,
