@@ -30,6 +30,7 @@ use crate::modules::account;
 use crate::proxy::common::client_adapter::CLIENT_ADAPTERS; // [NEW] Adapter Registry
 use crate::proxy::session_manager::SessionManager;
 use axum::http::HeaderMap;
+use futures::StreamExt;
 use std::collections::VecDeque;
 use std::io;
 use tokio::task::JoinSet;
@@ -2613,6 +2614,33 @@ pub async fn handle_chat_completions(
                         });
                     }
                     // 客户端请求流式，返回 SSE
+                    let combined_stream: std::pin::Pin<
+                        Box<dyn futures::Stream<Item = Result<Bytes, String>> + Send>,
+                    > = if crate::proxy::is_cursor_cleaner_enabled() {
+                        Box::pin(async_stream::stream! {
+                            let mut cleaner = crate::proxy::common::cursor_cleaner::CursorStreamCleaner::new();
+                            let mut s = Box::pin(combined_stream);
+                            while let Some(item) = s.next().await {
+                                match item {
+                                    Ok(b) => {
+                                        let text = String::from_utf8_lossy(&b);
+                                        let cleaned = cleaner.clean_chunk(&text);
+                                        if !cleaned.is_empty() {
+                                            yield Ok(Bytes::from(cleaned));
+                                        }
+                                    }
+                                    Err(e) => yield Err(e),
+                                }
+                            }
+                            if let Some(remaining) = cleaner.flush() {
+                                if !remaining.is_empty() {
+                                    yield Ok(Bytes::from(remaining));
+                                }
+                            }
+                        })
+                    } else {
+                        combined_stream
+                    };
                     let body = Body::from_stream(combined_stream);
                     return Ok(Response::builder()
                         .header("Content-Type", "text/event-stream")
@@ -4433,6 +4461,33 @@ pub async fn handle_completions(
                             }
                         });
                     }
+                    let combined_stream: std::pin::Pin<
+                        Box<dyn futures::Stream<Item = Result<Bytes, String>> + Send>,
+                    > = if crate::proxy::is_cursor_cleaner_enabled() {
+                        Box::pin(async_stream::stream! {
+                            let mut cleaner = crate::proxy::common::cursor_cleaner::CursorStreamCleaner::new();
+                            let mut s = Box::pin(combined_stream);
+                            while let Some(item) = s.next().await {
+                                match item {
+                                    Ok(b) => {
+                                        let text = String::from_utf8_lossy(&b);
+                                        let cleaned = cleaner.clean_chunk(&text);
+                                        if !cleaned.is_empty() {
+                                            yield Ok(Bytes::from(cleaned));
+                                        }
+                                    }
+                                    Err(e) => yield Err(e),
+                                }
+                            }
+                            if let Some(remaining) = cleaner.flush() {
+                                if !remaining.is_empty() {
+                                    yield Ok(Bytes::from(remaining));
+                                }
+                            }
+                        })
+                    } else {
+                        combined_stream
+                    };
                     return Response::builder()
                         .header("Content-Type", "text/event-stream")
                         .header("Cache-Control", "no-cache")
@@ -6093,7 +6148,7 @@ pub async fn handle_images_edits(
 // ==========================================
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use futures::{SinkExt, StreamExt};
+use futures::SinkExt;
 use uuid::Uuid;
 
 // ==========================================

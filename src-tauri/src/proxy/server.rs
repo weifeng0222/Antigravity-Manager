@@ -435,6 +435,11 @@ impl AxumServer {
         tracing::debug!("only_raw_quota_models 已更新: {}", only_raw);
     }
 
+    pub async fn update_cursor_cleaner(&self, enabled: bool) {
+        crate::proxy::update_cursor_cleaner(enabled);
+        tracing::debug!("cursor_cleaner 已更新: {}", enabled);
+    }
+
     pub async fn update_mapping(&self, config: &crate::proxy::config::ProxyConfig) {
         {
             let mut m = self.custom_mapping.write().await;

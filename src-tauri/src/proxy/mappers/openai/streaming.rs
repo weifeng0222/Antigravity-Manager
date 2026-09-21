@@ -575,6 +575,9 @@ where
         let mut reasoning_open = false;
         let mut reasoning_item_seq: u32 = 0;
         let mut active_reasoning_item_id = String::new();
+        let mut is_action_thinking = false;
+        let mut lead_buffer = String::new();
+        let mut accumulated_action_thinking = String::new();
 
         let mut emitted_tool_calls = std::collections::HashSet::new();
         let mut accumulated_text = String::new();
@@ -624,11 +627,100 @@ where
                                                     for part in parts {
                                                         thinking_acc.ingest_part(part);
                                                         let is_thought = part.get("thought").and_then(|v| v.as_bool()).unwrap_or(false);
+                                                        let raw_text_opt = part.get("text").and_then(|t| t.as_str());
+                                                        let is_func_call = part.get("functionCall").is_some();
+                                                        let is_inline_data = part.get("inlineData").is_some();
+
+                                                        if is_func_call {
+                                                            if crate::proxy::is_cursor_cleaner_enabled() && !lead_buffer.trim().is_empty() {
+                                                                if !reasoning_open {
+                                                                    reasoning_output_index = next_output_index;
+                                                                    next_output_index += 1;
+                                                                    active_reasoning_item_id = format!(
+                                                                        "rs_{}_{}",
+                                                                        &item_id_prefix[..16],
+                                                                        reasoning_item_seq
+                                                                    );
+                                                                    reasoning_item_seq += 1;
+                                                                    accumulated_thinking.clear();
+
+                                                                    let output_item_added = json!({"type": "response.output_item.added", "output_index": reasoning_output_index, "item": {"id": &active_reasoning_item_id, "type": "reasoning", "status": "in_progress", "summary": []}});
+                                                                    let output_item_added = inject_seq(output_item_added, &mut sequence_number);
+                                                                    yield Ok::<Bytes, String>(codex_sse_frame(&output_item_added));
+
+                                                                    let part_added = json!({"type": "response.reasoning_summary_part.added", "item_id": &active_reasoning_item_id, "output_index": reasoning_output_index, "summary_index": 0, "part": {"type": "summary_text", "text": ""}});
+                                                                    let part_added = inject_seq(part_added, &mut sequence_number);
+                                                                    yield Ok::<Bytes, String>(codex_sse_frame(&part_added));
+
+                                                                    reasoning_open = true;
+                                                                }
+
+                                                                accumulated_thinking.push_str(&lead_buffer);
+                                                                let delta_ev = json!({
+                                                                    "type": "response.reasoning_summary_text.delta",
+                                                                    "item_id": &active_reasoning_item_id,
+                                                                    "output_index": reasoning_output_index,
+                                                                    "summary_index": 0,
+                                                                    "delta": &lead_buffer
+                                                                });
+                                                                let delta_ev = inject_seq(delta_ev, &mut sequence_number);
+                                                                yield Ok::<Bytes, String>(codex_sse_frame(&delta_ev));
+                                                                lead_buffer.clear();
+                                                            }
+                                                            is_action_thinking = false;
+                                                        }
+
+                                                        let mut clean_text = String::new();
+                                                        if let Some(text) = raw_text_opt {
+                                                            clean_text = text
+                                                                .replace("<think>\n", "")
+                                                                .replace("<think>", "")
+                                                                .replace("\n</think>", "")
+                                                                .replace("</think>", "");
+
+                                                            clean_text = crate::proxy::common::cursor_cleaner::clean_default_api_leakage(&clean_text);
+
+                                                            if crate::proxy::is_cursor_cleaner_enabled() {
+                                                                if crate::proxy::common::cursor_cleaner::pure_dots().is_match(&clean_text) {
+                                                                    clean_text.clear();
+                                                                } else {
+                                                                    clean_text = crate::proxy::common::cursor_cleaner::leading_dots().replace(&clean_text, "").to_string();
+                                                                    clean_text = crate::proxy::common::cursor_cleaner::trailing_dots().replace(&clean_text, "").to_string();
+                                                                    clean_text = crate::proxy::common::cursor_cleaner::cascade_dots().replace_all(&clean_text, "...").to_string();
+                                                                }
+
+                                                                if !clean_text.is_empty() {
+                                                                    if is_thought {
+                                                                        if !lead_buffer.is_empty() {
+                                                                            clean_text = format!("{}{}", lead_buffer, clean_text);
+                                                                            lead_buffer.clear();
+                                                                        }
+                                                                        is_action_thinking = false;
+                                                                    } else if !message_item_emitted {
+                                                                        lead_buffer.push_str(&clean_text);
+                                                                        clean_text.clear();
+                                                                    } else {
+                                                                        is_action_thinking = false;
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+
+                                                        if !is_thought && !is_action_thinking && !clean_text.is_empty() && !lead_buffer.is_empty() {
+                                                            clean_text = format!("{}{}", lead_buffer, clean_text);
+                                                            lead_buffer.clear();
+                                                        }
+
+                                                        let effective_thought = is_thought || is_action_thinking;
 
                                                         // Close the reasoning summary before opening normal text
                                                         // or a tool item so output item lifecycles never overlap.
-                                                        let is_text_or_tool = part.get("text").is_some() || part.get("functionCall").is_some() || part.get("inlineData").is_some();
-                                                        if is_text_or_tool && !is_thought && reasoning_open {
+                                                        let should_close_reasoning = reasoning_open && (
+                                                            is_func_call
+                                                            || is_inline_data
+                                                            || (!clean_text.trim().is_empty() && !effective_thought)
+                                                        );
+                                                        if should_close_reasoning {
                                                             let text_done = json!({
                                                                 "type": "response.reasoning_summary_text.done",
                                                                 "item_id": &active_reasoning_item_id,
@@ -674,76 +766,69 @@ where
                                                             reasoning_open = false;
                                                         }
 
-                                                        if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
-                                                            let clean_text = if is_thought {
-                                                                text.replace("<think>\n", "").replace("<think>", "").replace("\n</think>", "").replace("</think>", "")
-                                                            } else {
-                                                                text.to_string()
-                                                            };
-                                                            if !clean_text.is_empty() {
-                                                                if is_thought && message_item_emitted {
-                                                                    // Once ordinary assistant text has started, it is the
-                                                                    // authoritative result for this response. A late thought
-                                                                    // delta must not be appended to it or open an overlapping
-                                                                    // reasoning item.
-                                                                    tracing::warn!("[Codex-Stream] Dropping late thought delta after assistant text started");
-                                                                } else if is_thought {
-                                                                    if !reasoning_open {
-                                                                        reasoning_output_index = next_output_index;
-                                                                        next_output_index += 1;
-                                                                        active_reasoning_item_id = format!(
-                                                                            "rs_{}_{}",
-                                                                            &item_id_prefix[..16],
-                                                                            reasoning_item_seq
-                                                                        );
-                                                                        reasoning_item_seq += 1;
-                                                                        accumulated_thinking.clear();
+                                                        if !clean_text.is_empty() {
+                                                            if effective_thought && message_item_emitted {
+                                                                // Once ordinary assistant text has started, it is the
+                                                                // authoritative result for this response. A late thought
+                                                                // delta must not be appended to it or open an overlapping
+                                                                // reasoning item.
+                                                                tracing::warn!("[Codex-Stream] Dropping late thought delta after assistant text started");
+                                                            } else if effective_thought {
+                                                                if !reasoning_open {
+                                                                    reasoning_output_index = next_output_index;
+                                                                    next_output_index += 1;
+                                                                    active_reasoning_item_id = format!(
+                                                                        "rs_{}_{}",
+                                                                        &item_id_prefix[..16],
+                                                                        reasoning_item_seq
+                                                                    );
+                                                                    reasoning_item_seq += 1;
+                                                                    accumulated_thinking.clear();
 
-                                                                        let output_item_added = json!({"type": "response.output_item.added", "output_index": reasoning_output_index, "item": {"id": &active_reasoning_item_id, "type": "reasoning", "status": "in_progress", "summary": []}});
-                                                                        let output_item_added = inject_seq(output_item_added, &mut sequence_number);
-                                                                        yield Ok::<Bytes, String>(codex_sse_frame(&output_item_added));
+                                                                    let output_item_added = json!({"type": "response.output_item.added", "output_index": reasoning_output_index, "item": {"id": &active_reasoning_item_id, "type": "reasoning", "status": "in_progress", "summary": []}});
+                                                                    let output_item_added = inject_seq(output_item_added, &mut sequence_number);
+                                                                    yield Ok::<Bytes, String>(codex_sse_frame(&output_item_added));
 
-                                                                        let part_added = json!({"type": "response.reasoning_summary_part.added", "item_id": &active_reasoning_item_id, "output_index": reasoning_output_index, "summary_index": 0, "part": {"type": "summary_text", "text": ""}});
-                                                                        let part_added = inject_seq(part_added, &mut sequence_number);
-                                                                        yield Ok::<Bytes, String>(codex_sse_frame(&part_added));
+                                                                    let part_added = json!({"type": "response.reasoning_summary_part.added", "item_id": &active_reasoning_item_id, "output_index": reasoning_output_index, "summary_index": 0, "part": {"type": "summary_text", "text": ""}});
+                                                                    let part_added = inject_seq(part_added, &mut sequence_number);
+                                                                    yield Ok::<Bytes, String>(codex_sse_frame(&part_added));
 
-                                                                        reasoning_open = true;
-                                                                    }
-
-                                                                    accumulated_thinking.push_str(&clean_text);
-                                                                    let delta_ev = json!({
-                                                                        "type": "response.reasoning_summary_text.delta",
-                                                                        "item_id": &active_reasoning_item_id,
-                                                                        "output_index": reasoning_output_index,
-                                                                        "summary_index": 0,
-                                                                        "delta": clean_text
-                                                                    });
-                                                                    let delta_ev = inject_seq(delta_ev, &mut sequence_number);
-                                                                    yield Ok::<Bytes, String>(codex_sse_frame(&delta_ev));
-                                                                } else {
-                                                                    if !message_item_emitted {
-                                                                        message_item_emitted = true;
-                                                                        message_output_index = next_output_index;
-                                                                        next_output_index += 1;
-                                                                        let output_item_added = json!({"type": "response.output_item.added", "output_index": message_output_index, "item": {"id": &message_item_id, "type": "message", "role": "assistant", "phase": "commentary", "status": "in_progress", "content": []}});
-                                                                        let output_item_added = inject_seq(output_item_added, &mut sequence_number);
-                                                                        yield Ok::<Bytes, String>(codex_sse_frame(&output_item_added));
-                                                                        let content_part_added = json!({"type": "response.content_part.added", "item_id": &message_item_id, "output_index": message_output_index, "content_index": 0, "part": {"type": "output_text", "text": "", "annotations": []}});
-                                                                        let content_part_added = inject_seq(content_part_added, &mut sequence_number);
-                                                                        yield Ok::<Bytes, String>(codex_sse_frame(&content_part_added));
-                                                                    }
-
-                                                                    accumulated_text.push_str(&clean_text);
-                                                                    let delta_ev = json!({
-                                                                        "type": "response.output_text.delta",
-                                                                        "item_id": &message_item_id,
-                                                                        "output_index": message_output_index,
-                                                                        "content_index": 0,
-                                                                        "delta": clean_text
-                                                                    });
-                                                                    let delta_ev = inject_seq(delta_ev, &mut sequence_number);
-                                                                    yield Ok::<Bytes, String>(codex_sse_frame(&delta_ev));
+                                                                    reasoning_open = true;
                                                                 }
+
+                                                                accumulated_thinking.push_str(&clean_text);
+                                                                let delta_ev = json!({
+                                                                    "type": "response.reasoning_summary_text.delta",
+                                                                    "item_id": &active_reasoning_item_id,
+                                                                    "output_index": reasoning_output_index,
+                                                                    "summary_index": 0,
+                                                                    "delta": clean_text
+                                                                });
+                                                                let delta_ev = inject_seq(delta_ev, &mut sequence_number);
+                                                                yield Ok::<Bytes, String>(codex_sse_frame(&delta_ev));
+                                                            } else {
+                                                                if !message_item_emitted {
+                                                                    message_item_emitted = true;
+                                                                    message_output_index = next_output_index;
+                                                                    next_output_index += 1;
+                                                                    let output_item_added = json!({"type": "response.output_item.added", "output_index": message_output_index, "item": {"id": &message_item_id, "type": "message", "role": "assistant", "phase": "commentary", "status": "in_progress", "content": []}});
+                                                                    let output_item_added = inject_seq(output_item_added, &mut sequence_number);
+                                                                    yield Ok::<Bytes, String>(codex_sse_frame(&output_item_added));
+                                                                    let content_part_added = json!({"type": "response.content_part.added", "item_id": &message_item_id, "output_index": message_output_index, "content_index": 0, "part": {"type": "output_text", "text": "", "annotations": []}});
+                                                                    let content_part_added = inject_seq(content_part_added, &mut sequence_number);
+                                                                    yield Ok::<Bytes, String>(codex_sse_frame(&content_part_added));
+                                                                }
+
+                                                                accumulated_text.push_str(&clean_text);
+                                                                let delta_ev = json!({
+                                                                    "type": "response.output_text.delta",
+                                                                    "item_id": &message_item_id,
+                                                                    "output_index": message_output_index,
+                                                                    "content_index": 0,
+                                                                    "delta": clean_text
+                                                                });
+                                                                let delta_ev = inject_seq(delta_ev, &mut sequence_number);
+                                                                yield Ok::<Bytes, String>(codex_sse_frame(&delta_ev));
                                                             }
                                                         }
                                                         if let Some(sig) = part.get("thoughtSignature").or(part.get("thought_signature")).and_then(|s| s.as_str()) {
@@ -976,18 +1061,46 @@ where
             final_outputs_map.insert(reasoning_output_index, reasoning_item);
         }
 
-        // A proxy-generated diagnostic (for example an invalid apply_patch) may
-        // only become available after the upstream stream has ended. Open the
-        // message lazily here so it is not silently dropped behind reasoning.
+        // If no tool call was made and no message item was emitted, promote lead_buffer
+        // or accumulated action thinking to the final message item so pure Q&A answers
+        // are never hidden from the user.
+        if !has_seen_tool_calls && !message_item_emitted {
+            if !lead_buffer.is_empty() {
+                accumulated_text.push_str(&lead_buffer);
+                lead_buffer.clear();
+            }
+            if accumulated_text.is_empty() && !accumulated_action_thinking.is_empty() {
+                accumulated_text.push_str(&accumulated_action_thinking);
+            }
+        }
+        if has_seen_tool_calls {
+            lead_buffer.clear();
+        }
+
+        // A proxy-generated diagnostic (for example an invalid apply_patch) or a promoted
+        // final answer may only become available after the upstream stream has ended.
+        // Open the message lazily here so it is not silently dropped behind reasoning.
         if !message_item_emitted && !accumulated_text.is_empty() {
             message_item_emitted = true;
             message_output_index = next_output_index;
-            let output_item_added = json!({"type": "response.output_item.added", "output_index": message_output_index, "item": {"id": &message_item_id, "type": "message", "role": "assistant", "phase": "commentary", "status": "in_progress", "content": []}});
+            next_output_index += 1;
+            let message_phase = if has_seen_tool_calls { "commentary" } else { "final_answer" };
+            let output_item_added = json!({"type": "response.output_item.added", "output_index": message_output_index, "item": {"id": &message_item_id, "type": "message", "role": "assistant", "phase": message_phase, "status": "in_progress", "content": []}});
             let output_item_added = inject_seq(output_item_added, &mut sequence_number);
             yield Ok::<Bytes, String>(codex_sse_frame(&output_item_added));
             let content_part_added = json!({"type": "response.content_part.added", "item_id": &message_item_id, "output_index": message_output_index, "content_index": 0, "part": {"type": "output_text", "text": "", "annotations": []}});
             let content_part_added = inject_seq(content_part_added, &mut sequence_number);
             yield Ok::<Bytes, String>(codex_sse_frame(&content_part_added));
+
+            let delta_ev = json!({
+                "type": "response.output_text.delta",
+                "item_id": &message_item_id,
+                "output_index": message_output_index,
+                "content_index": 0,
+                "delta": &accumulated_text
+            });
+            let delta_ev = inject_seq(delta_ev, &mut sequence_number);
+            yield Ok::<Bytes, String>(codex_sse_frame(&delta_ev));
         }
 
         if message_item_emitted {
@@ -1409,6 +1522,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_codex_final_message_is_promoted_and_persisted() {
+        let _guard = crate::proxy::config::TEST_CONFIG_LOCK.lock().unwrap();
+        crate::proxy::update_cursor_cleaner(false);
+
         let (_, events) = collect_codex_stream(vec![
             json!({"candidates": [{"content": {"parts": [{"text": "Checking ", "thought": true}]}}]}),
             json!({"candidates": [{"content": {"parts": [{"text": "results.", "thought": true}]}}]}),
@@ -1499,6 +1615,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_codex_late_thought_does_not_mix_into_final_answer() {
+        let _guard = crate::proxy::config::TEST_CONFIG_LOCK.lock().unwrap();
+        crate::proxy::update_cursor_cleaner(false);
+
         let (raw, events) = collect_codex_stream(vec![
             json!({
                 "candidates": [{
@@ -1536,6 +1655,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_codex_tool_round_message_stays_commentary() {
+        let _guard = crate::proxy::config::TEST_CONFIG_LOCK.lock().unwrap();
+        crate::proxy::update_cursor_cleaner(false);
+
         let (_, events) = collect_codex_stream(vec![
             json!({
                 "candidates": [{
@@ -1593,6 +1715,279 @@ mod tests {
         assert_eq!(terminal["type"], "response.incomplete");
         assert_eq!(terminal["response"]["status"], "incomplete");
         assert_eq!(terminal["response"]["error"]["code"], "empty_response");
+    }
+
+    #[tokio::test]
+    async fn test_codex_action_planning_folded_into_thinking_when_cleaner_enabled() {
+        let _guard = crate::proxy::config::TEST_CONFIG_LOCK.lock().unwrap();
+        crate::proxy::update_cursor_cleaner(true);
+
+        let (_raw, events) = collect_codex_stream(vec![
+            json!({
+                "candidates": [{
+                    "content": {"parts": [{"text": "\n\n"}]}
+                }]
+            }),
+            json!({
+                "candidates": [{
+                    "content": {"parts": [{"text": "The"}]}
+                }]
+            }),
+            json!({
+                "candidates": [{
+                    "content": {"parts": [{"text": " patch failed with an `invalid format` error. Let's inspect the file."}]}
+                }]
+            }),
+            json!({
+                "candidates": [{
+                    "content": {"parts": [{
+                        "functionCall": {"name": "ReadFile", "args": {"file_path": "account_pool.py"}}
+                    }]}
+                }]
+            }),
+            json!({
+                "candidates": [{
+                    "finishReason": "STOP",
+                    "content": {"parts": [{"text": ""}]}
+                }]
+            }),
+        ])
+        .await;
+
+        crate::proxy::update_cursor_cleaner(false);
+
+        // Verify NO message item was emitted
+        assert!(
+            events.iter().all(|event| {
+                !(event["type"] == "response.output_item.added"
+                    && event["item"]["type"] == "message")
+            }),
+            "No message bubble should be emitted when action planning is followed by a tool call"
+        );
+
+        // Verify reasoning item was emitted with the folded text
+        let reasoning_item = events
+            .iter()
+            .find(|event| {
+                event["type"] == "response.output_item.done" && event["item"]["type"] == "reasoning"
+            })
+            .expect("reasoning item should be emitted");
+        let reasoning_text = reasoning_item["item"]["summary"][0]["text"]
+            .as_str()
+            .unwrap();
+        assert!(reasoning_text.contains("The patch failed with an `invalid format` error"));
+
+        // Verify terminal response output has reasoning and function_call, but no message
+        let terminal = events.last().expect("terminal event");
+        assert_eq!(terminal["type"], "response.completed");
+        let output = terminal["response"]["output"]
+            .as_array()
+            .expect("output array");
+        assert_eq!(output.len(), 2);
+        assert_eq!(output[0]["type"], "reasoning");
+        assert_eq!(output[1]["type"], "function_call");
+    }
+
+    #[tokio::test]
+    async fn test_codex_qa_promoted_when_cleaner_enabled_and_no_tool() {
+        let _guard = crate::proxy::config::TEST_CONFIG_LOCK.lock().unwrap();
+        crate::proxy::update_cursor_cleaner(true);
+
+        let (_, events) = collect_codex_stream(vec![
+            json!({
+                "candidates": [{
+                    "content": {"parts": [{"text": "To fix this issue, you should update the database schema."}]}
+                }]
+            }),
+            json!({
+                "candidates": [{
+                    "finishReason": "STOP",
+                    "content": {"parts": [{"text": ""}]}
+                }]
+            }),
+        ])
+        .await;
+
+        crate::proxy::update_cursor_cleaner(false);
+
+        // Verify message item is emitted as final_answer
+        let done = events
+            .iter()
+            .find(|event| {
+                event["type"] == "response.output_item.done" && event["item"]["type"] == "message"
+            })
+            .expect("message done should be emitted for QA");
+        assert_eq!(done["item"]["phase"], "final_answer");
+        assert!(done["item"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("To fix this issue"));
+    }
+
+    #[tokio::test]
+    async fn test_codex_image33_interrupted_thought_with_chinese_filename_folded_into_thinking() {
+        let _guard = crate::proxy::config::TEST_CONFIG_LOCK.lock().unwrap();
+        crate::proxy::update_cursor_cleaner(true);
+
+        let (_raw, events) = collect_codex_stream(vec![
+            json!({
+                "candidates": [{
+                    "content": {"parts": [{"text": "minting/capturing the 292-byte turn-", "thought": true}]}
+                }]
+            }),
+            json!({
+                "candidates": [{
+                    "content": {"parts": [{"text": "state ticket) is meant to solve this. They also point to `@sub2新站.zip` which they state can prevent this issue before an account is marked.\n\nLet's locate sub2新站.zip and inspect its contents to understand what technique/logic it implements."}]}
+                }]
+            }),
+            json!({
+                "candidates": [{
+                    "content": {"parts": [{
+                        "functionCall": {"name": "Glob", "args": {"pattern": "**/*sub2*"}}
+                    }]}
+                }]
+            }),
+            json!({
+                "candidates": [{
+                    "finishReason": "STOP",
+                    "content": {"parts": [{"text": ""}]}
+                }]
+            }),
+        ])
+        .await;
+
+        crate::proxy::update_cursor_cleaner(false);
+
+        // Verify NO message item was emitted
+        assert!(events.iter().all(|event| {
+            !(event["type"] == "response.output_item.added" && event["item"]["type"] == "message")
+        }), "No message bubble should be emitted when pre-tool thought slice contains Chinese filename");
+
+        // Verify reasoning item was emitted with both thought and lead_buffer text
+        let reasoning_item = events
+            .iter()
+            .find(|event| {
+                event["type"] == "response.output_item.done" && event["item"]["type"] == "reasoning"
+            })
+            .expect("reasoning item should be emitted");
+        let reasoning_text = reasoning_item["item"]["summary"][0]["text"]
+            .as_str()
+            .unwrap();
+        assert!(reasoning_text.contains("292-byte turn-"));
+        assert!(reasoning_text.contains("@sub2新站.zip"));
+        assert!(reasoning_text.contains("Let's locate sub2新站.zip"));
+
+        // Verify terminal response output has reasoning and function_call, but no message
+        let terminal = events.last().expect("terminal event");
+        assert_eq!(terminal["type"], "response.completed");
+        let output = terminal["response"]["output"]
+            .as_array()
+            .expect("output array");
+        assert_eq!(output.len(), 2);
+        assert_eq!(output[0]["type"], "reasoning");
+        assert_eq!(output[1]["type"], "function_call");
+    }
+
+    #[tokio::test]
+    async fn test_codex_long_qa_promoted_during_stream_when_cleaner_enabled() {
+        let _guard = crate::proxy::config::TEST_CONFIG_LOCK.lock().unwrap();
+        crate::proxy::update_cursor_cleaner(true);
+
+        let long_chunk_1 =
+            "This is a detailed technical explanation of the architecture. ".repeat(7); // ~434 chars
+        let chunk_2 = " Furthermore, the streaming pipeline ensures zero latency.";
+
+        let (_, events) = collect_codex_stream(vec![
+            json!({
+                "candidates": [{
+                    "content": {"parts": [{"text": &long_chunk_1}]}
+                }]
+            }),
+            json!({
+                "candidates": [{
+                    "content": {"parts": [{"text": chunk_2}]}
+                }]
+            }),
+            json!({
+                "candidates": [{
+                    "finishReason": "STOP",
+                    "content": {"parts": [{"text": ""}]}
+                }]
+            }),
+        ])
+        .await;
+
+        crate::proxy::update_cursor_cleaner(false);
+
+        // Verify message item is emitted and completed as final_answer
+        let done = events
+            .iter()
+            .find(|event| {
+                event["type"] == "response.output_item.done" && event["item"]["type"] == "message"
+            })
+            .expect("message done should be emitted for long QA");
+        assert_eq!(done["item"]["phase"], "final_answer");
+        let content_text = done["item"]["content"][0]["text"].as_str().unwrap();
+        assert!(content_text.contains("detailed technical explanation"));
+        assert!(content_text.contains("streaming pipeline"));
+    }
+
+    #[tokio::test]
+    async fn test_codex_image34_code_patch_draft_before_tool_call_folded_into_thinking() {
+        let _guard = crate::proxy::config::TEST_CONFIG_LOCK.lock().unwrap();
+        crate::proxy::update_cursor_cleaner(true);
+
+        let draft_patch = "• monkeypatch.setattr(account_pool, \"list_account_names\", lambda: [\"acc_proxy_test\", \"acc_backup\"])\n• monkeypatch.setattr(mitm_proxy, \"time\", type(\"MockTime\", (), {\"sleep\": lambda s: None}))\n•\n• forward_headers: dict[str, str] = {\"authorization\": \"Bearer token\"}\n• retry_decision = mitm_proxy._should_retry_upstream(\n• status=503,\n• body=b'{\"error\":{\"message\":\"The model is at capacity\"}}',\n• attempt=0,\n• host=\"api.openai.com\",\n• fwd=forward_headers,\n• failed_account=\"acc_proxy_test\",\n• req_body=b'{\"model\":\"gpt-5.6-luna\"}',\n• )\n• assert retry_decision is True\n• assert turn_state_ticket.is_rescue_injection_armed(\"acc_proxy_test\", \"gpt-5.6-luna\") is True *** End Patch}}";
+
+        let (_, events) = collect_codex_stream(vec![
+            json!({ "candidates": [{ "content": {"parts": [{"text": draft_patch}]} }] }),
+            json!({ "candidates": [{ "content": {"parts": [{"functionCall": {"name": "Run", "args": {"command": "cd /weifeng/.codex-mitm && pytest test_*.py cd"}}}] }}] }),
+            json!({ "candidates": [{ "finishReason": "STOP", "content": {"parts": [{"text": ""}]} }] }),
+        ]).await;
+
+        crate::proxy::update_cursor_cleaner(false);
+
+        let has_message = events
+            .iter()
+            .any(|e| e["type"] == "response.output_item.added" && e["item"]["type"] == "message");
+        assert!(
+            !has_message,
+            "Image #34 draft patch before tool call must NEVER emit a message item!"
+        );
+
+        let reasoning_deltas: Vec<&str> = events
+            .iter()
+            .filter(|e| e["type"] == "response.reasoning_summary_text.delta")
+            .filter_map(|e| e["delta"].as_str())
+            .collect();
+        assert!(
+            !reasoning_deltas.is_empty(),
+            "Draft patch must be folded into reasoning summary text delta"
+        );
+        assert!(reasoning_deltas.join("").contains("monkeypatch.setattr"));
+    }
+
+    #[tokio::test]
+    async fn test_codex_image36_default_api_leakage_stripped_from_output() {
+        let _guard = crate::proxy::config::TEST_CONFIG_LOCK.lock().unwrap();
+
+        let raw_chunk = "The hypothesis is that a single request to the responses endpoint will initiate the 5-hour rolling window.call:default_api:Shell{description:Check auth file of 1wkpzhugbo6t1t_dr.com}";
+
+        let (_, events) = collect_codex_stream(vec![
+            json!({ "candidates": [{ "content": {"parts": [{"text": raw_chunk}]} }] }),
+            json!({ "candidates": [{ "finishReason": "STOP", "content": {"parts": [{"text": ""}]} }] }),
+        ]).await;
+
+        let output_deltas: Vec<&str> = events
+            .iter()
+            .filter(|e| e["type"] == "response.output_text.delta")
+            .filter_map(|e| e["delta"].as_str())
+            .collect();
+
+        let joined = output_deltas.join("");
+        assert!(joined.contains("will initiate the 5-hour rolling window."));
+        assert!(!joined.contains("call:default_api"));
+        assert!(!joined.contains("1wkpzhugbo6t1t_dr.com"));
     }
 
     #[tokio::test]

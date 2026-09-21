@@ -430,6 +430,7 @@ pub async fn save_config(
     crate::proxy::update_thinking_budget_config(config.proxy.thinking_budget.clone());
     crate::proxy::update_global_system_prompt_config(config.proxy.global_system_prompt.clone());
     crate::proxy::update_image_thinking_mode(config.proxy.image_thinking_mode.clone());
+    crate::proxy::update_cursor_cleaner(config.proxy.cursor_cleaner);
     crate::proxy::config::update_global_compression_level(
         config.proxy.experimental.compression_level.clone(),
         config.proxy.experimental.enable_usage_scaling,
@@ -462,6 +463,11 @@ pub async fn save_config(
         instance
             .axum_server
             .update_only_raw_quota_models(config.proxy.only_raw_quota_models)
+            .await;
+        // 更新 Cursor 纯净流与点号清洗开关
+        instance
+            .axum_server
+            .update_cursor_cleaner(config.proxy.cursor_cleaner)
             .await;
         // 更新上游代理
         instance

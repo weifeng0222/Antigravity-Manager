@@ -428,8 +428,11 @@ export default function ThinkingBudget({
 
             {/* 0. 服务端思考块回填 (Server-side Thought & Signature Restoration) */}
             {onThinkingStoreChange && (
-                <div className="p-3.5 bg-purple-50/70 dark:bg-purple-900/20 border border-purple-200/80 dark:border-purple-800/40 rounded-xl flex items-center justify-between gap-4 shadow-2xs">
-                    <div className="space-y-0.5">
+                <div
+                    className="p-3.5 bg-purple-50/70 dark:bg-purple-900/20 border border-purple-200/80 dark:border-purple-800/40 rounded-xl flex items-center justify-between gap-4 shadow-2xs cursor-pointer hover:bg-purple-100/70 dark:hover:bg-purple-900/30 transition-colors"
+                    onClick={() => onThinkingStoreChange(!thinkingStoreEnabled)}
+                >
+                    <div className="space-y-0.5 select-none">
                         <div className="flex items-center gap-2">
                             <span className="text-xs font-bold text-gray-900 dark:text-white">
                                 {t("proxy.config.thinking_budget.store_enabled", { defaultValue: "服务端思考块与签名回填" })}
@@ -446,8 +449,9 @@ export default function ThinkingBudget({
                     </div>
                     <input
                         type="checkbox"
-                        className="toggle toggle-sm toggle-primary shrink-0"
+                        className="toggle toggle-sm bg-gray-200 dark:bg-base-300 border-gray-300 dark:border-base-300 checked:bg-blue-600 checked:border-blue-600 cursor-pointer shrink-0"
                         checked={thinkingStoreEnabled}
+                        onClick={(e) => e.stopPropagation()}
                         onChange={(e) => onThinkingStoreChange(e.target.checked)}
                     />
                 </div>
