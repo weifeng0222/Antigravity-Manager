@@ -51,8 +51,12 @@ if [ ! -f "$PATCH_FILE" ]; then
 fi
 
 # 2. 从官方仓库拉取最新提交与标签
-log_info "正在连接 GitHub 拉取官方最新版本..."
-git fetch origin --tags --prune
+UPSTREAM_REMOTE="origin"
+if git remote | grep -q "upstream"; then
+    UPSTREAM_REMOTE="upstream"
+fi
+log_info "正在连接 GitHub 拉取官方最新版本 (从 ${UPSTREAM_REMOTE})..."
+git fetch "$UPSTREAM_REMOTE" --tags --prune
 
 # 3. 计算最新版本
 LATEST_TAG=$(git tag -l "v*" --sort=-v:refname | head -n 1 || true)
