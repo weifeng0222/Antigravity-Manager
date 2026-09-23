@@ -52,6 +52,26 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   z-index: 10;
+  background-color: #ffffff;
+  color: #1f2937;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+.dark .modal-box {
+  background-color: #1e293b;
+  color: #f8fafc;
+}
+
+/* 解决 .modal-box 因 DaisyUI 5 [object Object] 语法丢失导致的透明不可见与缩放问题 */
+.modal.modal-open .modal-box,
+.modal[open] .modal-box,
+.modal:target .modal-box {
+  opacity: 1 !important;
+  visibility: visible !important;
+  scale: 1 !important;
+  transform: none !important;
+  pointer-events: auto !important;
 }
 
 .modal-backdrop {

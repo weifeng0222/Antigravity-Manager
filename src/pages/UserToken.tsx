@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { Plus, Trash2, RefreshCw, Copy, Activity, User, Settings, Shield, Clock, Users } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -455,9 +456,9 @@ const UserToken: React.FC = () => {
             </div>
 
             {/* Create Modal */}
-            {showCreateModal && (
-                <div className="modal modal-open">
-                    <div className="modal-box">
+            {showCreateModal && createPortal(
+                <div className="modal modal-open fixed inset-0 z-[100] flex items-center justify-center p-4">
+                    <div className="modal-box relative z-10 max-w-lg w-full bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 shadow-2xl rounded-2xl p-6">
                         <h3 className="font-bold text-lg mb-4">{t('user_token.create_title', { defaultValue: 'Create New Token' })}</h3>
 
                         <div className="form-control w-full mb-3">
@@ -579,13 +580,15 @@ const UserToken: React.FC = () => {
                             </button>
                         </div>
                     </div>
-                </div>
+                    <div className="modal-backdrop fixed inset-0 z-0 bg-black/45 backdrop-blur-sm" onClick={() => setShowCreateModal(false)}></div>
+                </div>,
+                document.body
             )}
 
             {/* Edit Modal */}
-            {showEditModal && editingToken && (
-                <div className="modal modal-open">
-                    <div className="modal-box">
+            {showEditModal && editingToken && createPortal(
+                <div className="modal modal-open fixed inset-0 z-[100] flex items-center justify-center p-4">
+                    <div className="modal-box relative z-10 max-w-lg w-full bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 shadow-2xl rounded-2xl p-6">
                         <h3 className="font-bold text-lg mb-4">{t('user_token.edit_title', { defaultValue: 'Edit Token' })}</h3>
 
                         <div className="form-control w-full mb-3">
@@ -669,7 +672,9 @@ const UserToken: React.FC = () => {
                             </button>
                         </div>
                     </div>
-                </div>
+                    <div className="modal-backdrop fixed inset-0 z-0 bg-black/45 backdrop-blur-sm" onClick={() => setShowEditModal(false)}></div>
+                </div>,
+                document.body
             )}
         </motion.div>
     );
