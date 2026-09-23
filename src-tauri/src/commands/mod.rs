@@ -454,77 +454,67 @@ pub async fn save_config(
         monitor.set_capture_health_logs(config.proxy.capture_health_logs);
     }
 
-    // 热更新正在运行的服务
-    let instance_lock = proxy_state.instance.read().await;
-    if let Some(instance) = instance_lock.as_ref() {
-        // 更新模型映射
-        instance.axum_server.update_mapping(&config.proxy).await;
-        // 更新仅暴露真实配额模型开关
-        instance
-            .axum_server
-            .update_only_raw_quota_models(config.proxy.only_raw_quota_models)
-            .await;
-        // 更新 Cursor 纯净流与点号清洗开关
-        instance
-            .axum_server
-            .update_cursor_cleaner(config.proxy.cursor_cleaner)
-            .await;
-        // 更新上游代理
-        instance
-            .axum_server
-            .update_proxy(config.proxy.upstream_proxy.clone())
-            .await;
-        // 更新安全策略 (auth)
-        instance.axum_server.update_security(&config.proxy).await;
-        // 更新 z.ai 配置
-        instance.axum_server.update_zai(&config.proxy).await;
-        // 更新实验性配置
-        instance
-            .axum_server
-            .update_experimental(&config.proxy)
-            .await;
-        // 更新调试日志配置
-        instance
-            .axum_server
-            .update_debug_logging(&config.proxy)
-            .await;
-        // [NEW] 更新 User-Agent 配置
-        instance.axum_server.update_user_agent(&config.proxy).await;
-        // 更新 Thinking Budget 配置
-        crate::proxy::update_thinking_budget_config(config.proxy.thinking_budget.clone());
-        // [NEW] 更新全局系统提示词配置
-        crate::proxy::update_global_system_prompt_config(config.proxy.global_system_prompt.clone());
-        // [NEW] 更新全局图像思维模式配置
-        crate::proxy::update_image_thinking_mode(config.proxy.image_thinking_mode.clone());
-        // [NEW] 更新全局压缩等级配置
-        crate::proxy::config::update_global_compression_level(
-            config.proxy.experimental.compression_level.clone(),
-            config.proxy.experimental.enable_usage_scaling,
-        );
-        crate::proxy::config::update_global_audit_config(
-            config.proxy.experimental.payload_storage_mode.clone(),
-            config.proxy.experimental.log_retention_days,
-            config.proxy.experimental.thinking_store_enabled,
-            config.proxy.experimental.thinking_retention_days,
-            Some(config.proxy.experimental.thinking_max_memory_turns),
-        );
-        crate::proxy::config::update_global_thresholds(
-            config.proxy.experimental.context_compression_threshold_l1,
-            config.proxy.experimental.context_compression_threshold_l2,
-            config.proxy.experimental.context_compression_threshold_l3,
-        );
-        // 更新代理池配置
-        instance
-            .axum_server
-            .update_proxy_pool(config.proxy.proxy_pool.clone())
-            .await;
-        // 更新熔断配置
-        instance
-            .token_manager
-            .update_circuit_breaker_config(config.circuit_breaker.clone())
-            .await;
-        tracing::debug!("已同步热更新反代服务配置");
-    }
+    // 热更新正在运行的服务（后台异步执行，不阻塞配置保存的即时响应）
+    let proxy_state_clone = proxy_state.inner().clone();
+    let config_clone = config.clone();
+    tokio::spawn(async move {
+        let instance_lock = proxy_state_clone.instance.read().await;
+        if let Some(instance) = instance_lock.as_ref() {
+            // 更新模型映射
+            instance
+                .axum_server
+                .update_mapping(&config_clone.proxy)
+                .await;
+            // 更新仅暴露真实配额模型开关
+            instance
+                .axum_server
+                .update_only_raw_quota_models(config_clone.proxy.only_raw_quota_models)
+                .await;
+            // 更新 Cursor 纯净流与点号清洗开关
+            instance
+                .axum_server
+                .update_cursor_cleaner(config_clone.proxy.cursor_cleaner)
+                .await;
+            // 更新上游代理
+            instance
+                .axum_server
+                .update_proxy(config_clone.proxy.upstream_proxy.clone())
+                .await;
+            // 更新安全策略 (auth)
+            instance
+                .axum_server
+                .update_security(&config_clone.proxy)
+                .await;
+            // 更新 z.ai 配置
+            instance.axum_server.update_zai(&config_clone.proxy).await;
+            // 更新实验性配置
+            instance
+                .axum_server
+                .update_experimental(&config_clone.proxy)
+                .await;
+            // 更新调试日志配置
+            instance
+                .axum_server
+                .update_debug_logging(&config_clone.proxy)
+                .await;
+            // [NEW] 更新 User-Agent 配置
+            instance
+                .axum_server
+                .update_user_agent(&config_clone.proxy)
+                .await;
+            // 更新代理池配置
+            instance
+                .axum_server
+                .update_proxy_pool(config_clone.proxy.proxy_pool.clone())
+                .await;
+            // 更新熔断配置
+            instance
+                .token_manager
+                .update_circuit_breaker_config(config_clone.circuit_breaker.clone())
+                .await;
+            tracing::debug!("已异步完成热更新反代服务配置");
+        }
+    });
 
     Ok(())
 }

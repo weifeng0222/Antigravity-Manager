@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation, Trans } from "react-i18next";
 import { Save, Check, ChevronDown, Layers, HelpCircle, HardDrive, Trash2, AlertTriangle } from "lucide-react";
 import { request } from "../../utils/request";
@@ -1248,9 +1249,9 @@ export default function ThinkingBudget({
             )}
 
             {/* 清空思考块二次确认弹窗 */}
-            {showClearThinkingConfirm && (
-                <div className="modal modal-open">
-                    <div className="modal-box max-w-md bg-white dark:bg-base-100 border border-base-300 shadow-2xl p-5">
+            {showClearThinkingConfirm && createPortal(
+                <div className="modal modal-open fixed inset-0 z-[100] flex items-center justify-center p-4">
+                    <div className="modal-box relative z-10 max-w-md w-full bg-white dark:bg-base-100 border border-base-300 shadow-2xl p-5 rounded-2xl">
                         <div className="flex items-start gap-3">
                             <div className="p-2 rounded-full bg-error/10 text-error shrink-0 mt-0.5">
                                 <AlertTriangle size={20} />
@@ -1303,10 +1304,11 @@ export default function ThinkingBudget({
                         </div>
                     </div>
                     <div
-                        className="modal-backdrop bg-black/40"
+                        className="modal-backdrop fixed inset-0 z-0 bg-black/45 backdrop-blur-sm"
                         onClick={() => !isClearingThinking && setShowClearThinkingConfirm(false)}
                     />
-                </div>
+                </div>,
+                document.body
             )}
         </div>
     );

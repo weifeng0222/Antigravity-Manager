@@ -17,11 +17,11 @@ export default function AccountDetailsDialog({ account, onClose }: AccountDetail
     if (!account) return null;
 
     return createPortal(
-        <div className="modal modal-open z-[100]">
+        <div className="modal modal-open z-[100] fixed inset-0 flex items-center justify-center p-4">
             {/* Draggable Top Region */}
             <div data-tauri-drag-region className="fixed top-0 left-0 right-0 h-8 z-[110]" />
 
-            <div className="modal-box relative max-w-3xl bg-white dark:bg-base-100 shadow-2xl rounded-2xl p-0 overflow-hidden">
+            <div className="modal-box relative z-10 max-w-3xl w-full bg-white dark:bg-base-100 shadow-2xl rounded-2xl p-0 overflow-hidden">
                 {/* Header */}
                 <div className="px-6 py-5 border-b border-gray-100 dark:border-base-200 bg-gray-50/50 dark:bg-base-200/50 flex justify-between items-center">
                     <div className="flex items-center gap-3">
@@ -224,7 +224,7 @@ export default function AccountDetailsDialog({ account, onClose }: AccountDetail
                     )}
                 </div>
             </div>
-            <div className="modal-backdrop bg-black/40 backdrop-blur-sm" onClick={onClose}></div>
+            <div className="modal-backdrop fixed inset-0 z-0 bg-black/45 backdrop-blur-sm" onClick={onClose}></div>
         </div>,
         document.body
     );
