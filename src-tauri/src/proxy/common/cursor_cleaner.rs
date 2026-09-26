@@ -1,5 +1,4 @@
 use regex::Regex;
-use std::collections::HashMap;
 use std::sync::OnceLock;
 
 // 1. 正则安全规则组（绝对不误伤单词间空格、换行、单句号）
@@ -68,20 +67,10 @@ pub fn clean_default_api_leakage(text: &str) -> String {
     s.to_string()
 }
 
-#[derive(Debug, Clone, PartialEq)]
-enum BlockType {
-    Text,
-    Thinking,
-    ConvertedThinking,
-    ToolUse,
-    Other(String),
-}
-
 /// 有状态的 Cursor 流式清洗器（支持 Anthropic 和 OpenAI 协议）
 #[derive(Debug, Default)]
 pub struct CursorStreamCleaner {
     buffer: String,
-    anthropic_block_types: HashMap<u64, BlockType>,
 }
 
 impl CursorStreamCleaner {
@@ -183,20 +172,7 @@ impl CursorStreamCleaner {
         // ====================================================================
         if let Some(typ) = val.get("type").and_then(|v| v.as_str()) {
             if typ.starts_with("content_block_") {
-                let block_index = val.get("index").and_then(|v| v.as_u64()).unwrap_or(0);
-
                 if typ == "content_block_start" {
-                    let orig_type = val
-                        .pointer("/content_block/type")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("text");
-                    let btype = match orig_type {
-                        "text" => BlockType::Text,
-                        "thinking" => BlockType::Thinking,
-                        "tool_use" => BlockType::ToolUse,
-                        other => BlockType::Other(other.to_string()),
-                    };
-                    self.anthropic_block_types.insert(block_index, btype);
                     return self.rebuild_block(event_name.as_deref(), &other_lines, &val);
                 }
 
@@ -220,49 +196,20 @@ impl CursorStreamCleaner {
                         }
 
                         // 清洗多余点号与伪工具泄漏
+                        // 注意：严禁将已声明为 text 的 content_block 中的 text_delta 篡改为 thinking_delta，
+                        // 否则违反 Anthropic Messages SSE 协议契约，导致 Claude Code / Anthropic SDK 抛出
+                        // "API Error: Content block is not a thinking block"。
                         let text = leading_dots().replace(&text, "");
                         let text = trailing_dots().replace(&text, "");
                         let text = cascade_dots().replace_all(&text, "...");
                         let text = clean_default_api_leakage(&text);
 
-                        let curr_block = self
-                            .anthropic_block_types
-                            .get(&block_index)
-                            .cloned()
-                            .unwrap_or(BlockType::Text);
-
-                        let mut active_block = curr_block;
-                        if active_block == BlockType::Text {
-                            if action_planning_prefix().is_match(text.trim()) {
-                                active_block = BlockType::ConvertedThinking;
-                                self.anthropic_block_types
-                                    .insert(block_index, BlockType::ConvertedThinking);
-                            }
+                        if text.is_empty() {
+                            return ": ping\n\n".to_string();
                         }
 
-                        if active_block == BlockType::ConvertedThinking {
-                            if chinese_char().is_match(&text) {
-                                // 出现中文，恢复为正文通道
-                                self.anthropic_block_types
-                                    .insert(block_index, BlockType::Text);
-                                if let Some(delta) = val.get_mut("delta") {
-                                    delta["text"] = serde_json::Value::String(text.clone());
-                                }
-                            } else {
-                                // 转为 thinking_delta，Cursor 自动折叠进思考抽屉！
-                                if let Some(delta) = val.get_mut("delta") {
-                                    delta["type"] =
-                                        serde_json::Value::String("thinking_delta".to_string());
-                                    delta["thinking"] = serde_json::Value::String(text.clone());
-                                    if let Some(obj) = delta.as_object_mut() {
-                                        obj.remove("text");
-                                    }
-                                }
-                            }
-                        } else {
-                            if let Some(delta) = val.get_mut("delta") {
-                                delta["text"] = serde_json::Value::String(text);
-                            }
+                        if let Some(delta) = val.get_mut("delta") {
+                            delta["text"] = serde_json::Value::String(text);
                         }
 
                         return self.rebuild_block(event_name.as_deref(), &other_lines, &val);
@@ -505,27 +452,31 @@ mod tests {
     }
 
     #[test]
-    fn test_anthropic_action_planning_to_thinking() {
+    fn test_anthropic_text_delta_preserves_block_type_contract() {
         let mut cleaner = CursorStreamCleaner::new();
 
-        // 1. content_block_start
+        // 1. content_block_start declares a "text" block at index 0
         let start = "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n";
         let out_start = cleaner.clean_chunk(start);
         assert!(out_start.contains("content_block_start"));
 
-        // 2. content_block_delta with action planning prefix
+        // 2. content_block_delta with English prefix and trailing dots must stay text_delta
+        //    (converting to thinking_delta on a text block triggers "Content block is not a thinking block")
         let delta = "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"The user observes that cold accounts are not being automatically activated...\"}}\n\n";
         let out_delta = cleaner.clean_chunk(delta);
-        assert!(out_delta.contains("\"type\":\"thinking_delta\""));
-        assert!(out_delta.contains("\"thinking\":\"The user observes that cold accounts are not being automatically activated\""));
-        assert!(!out_delta.contains("\"text\":"));
+        assert!(out_delta.contains("\"type\":\"text_delta\""));
+        assert!(!out_delta.contains("\"type\":\"thinking_delta\""));
+        assert!(out_delta.contains(
+            "\"text\":\"The user observes that cold accounts are not being automatically activated\""
+        ));
 
-        // 3. Subsequent English sentence remains in thinking
-        let delta2 = "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Let's check the code implementation.\"}}\n\n";
+        // 3. Subsequent English sentence also remains text_delta
+        let delta2 = "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"In `@anthropic-ai/sdk`, content_block_start initializes a text block.\"}}\n\n";
         let out_delta2 = cleaner.clean_chunk(delta2);
-        assert!(out_delta2.contains("\"type\":\"thinking_delta\""));
+        assert!(out_delta2.contains("\"type\":\"text_delta\""));
+        assert!(!out_delta2.contains("\"type\":\"thinking_delta\""));
 
-        // 4. If Chinese appears, converts back to text_delta
+        // 4. Chinese text also remains text_delta
         let delta_cn = "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"好的，我现在为您修复这个问题。\"}}\n\n";
         let out_delta_cn = cleaner.clean_chunk(delta_cn);
         assert!(out_delta_cn.contains("\"type\":\"text_delta\""));

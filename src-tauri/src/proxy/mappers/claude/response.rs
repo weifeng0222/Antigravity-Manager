@@ -93,15 +93,40 @@ impl NonStreamingProcessor {
 
         // 处理 trailingSignature (空 text 带签名)
         if let Some(signature) = self.trailing_signature.take() {
+            self.attach_or_push_signature(signature);
+        }
+
+        // 构建响应
+        self.build_response(gemini_response)
+    }
+
+    /// 安全挂载签名：
+    /// 1. 若当前有未刷新的 thinking_builder 且尚无签名，直接赋给 thinking_signature；
+    /// 2. 若已生成的 content_blocks 中包含 Thinking 块，优先回填到最后一个无签名的 Thinking 块；
+    /// 3. 若当前尚未生成任何非 Thinking 块（content_blocks 为空且 text_builder 为空），可前置压入空 Thinking 块；
+    /// 4. 若已存在 Text / ToolUse 块且无 Thinking 块，则不在末尾追加空 Thinking 块（签名已缓存在 SignatureCache 中）。
+    fn attach_or_push_signature(&mut self, signature: String) {
+        if !self.thinking_builder.is_empty() && self.thinking_signature.is_none() {
+            self.thinking_signature = Some(signature);
+            return;
+        }
+
+        for block in self.content_blocks.iter_mut().rev() {
+            if let ContentBlock::Thinking { signature: sig, .. } = block {
+                if sig.is_none() {
+                    *sig = Some(signature);
+                    return;
+                }
+            }
+        }
+
+        if self.content_blocks.is_empty() && self.text_builder.is_empty() {
             self.content_blocks.push(ContentBlock::Thinking {
                 thinking: String::new(),
                 signature: Some(signature),
                 cache_control: None,
             });
         }
-
-        // 构建响应
-        self.build_response(gemini_response)
     }
 
     /// 处理单个 part
@@ -151,11 +176,7 @@ impl NonStreamingProcessor {
 
             // 处理 trailingSignature (B4/C3 场景)
             if let Some(trailing_sig) = self.trailing_signature.take() {
-                self.content_blocks.push(ContentBlock::Thinking {
-                    thinking: String::new(),
-                    signature: Some(trailing_sig),
-                    cache_control: None,
-                });
+                self.attach_or_push_signature(trailing_sig);
             }
 
             self.has_tool_call = true;
@@ -200,12 +221,9 @@ impl NonStreamingProcessor {
 
                 // 处理 trailingSignature
                 if let Some(trailing_sig) = self.trailing_signature.take() {
-                    self.flush_thinking();
-                    self.content_blocks.push(ContentBlock::Thinking {
-                        thinking: String::new(),
-                        signature: Some(trailing_sig),
-                        cache_control: None,
-                    });
+                    if self.thinking_signature.is_none() {
+                        self.thinking_signature = Some(trailing_sig);
+                    }
                 }
 
                 self.thinking_builder.push_str(text);
@@ -226,24 +244,15 @@ impl NonStreamingProcessor {
 
                 // 处理之前的 trailingSignature
                 if let Some(trailing_sig) = self.trailing_signature.take() {
-                    self.flush_text();
-                    self.content_blocks.push(ContentBlock::Thinking {
-                        thinking: String::new(),
-                        signature: Some(trailing_sig),
-                        cache_control: None,
-                    });
+                    self.attach_or_push_signature(trailing_sig);
                 }
 
                 self.text_builder.push_str(text);
 
-                // 非空 text 带签名 - 立即刷新并输出空 thinking 块
+                // 非空 text 带签名 - 优先回填到前置 Thinking 块，不向正文后追加空 Thinking 块
                 if let Some(sig) = signature {
+                    self.attach_or_push_signature(sig);
                     self.flush_text();
-                    self.content_blocks.push(ContentBlock::Thinking {
-                        thinking: String::new(),
-                        signature: Some(sig),
-                        cache_control: None,
-                    });
                 }
             }
         }

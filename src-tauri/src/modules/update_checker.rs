@@ -353,7 +353,8 @@ async fn check_static_url(url: &str, source_name: &str) -> Result<UpdateInfo, St
     }
 
     // fallback sources generally don't provide release notes or download specific URL, construct generic
-    let download_url = "https://github.com/weifeng0222/Antigravity-Manager/releases/latest".to_string();
+    let download_url =
+        "https://github.com/weifeng0222/Antigravity-Manager/releases/latest".to_string();
     let release_notes = format!(
         "New version detected via {}. Please check release page for details.",
         source_name
