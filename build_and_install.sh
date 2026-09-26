@@ -80,11 +80,9 @@ log_success "构建环境正常: Node ${NODE_VER}, ${CARGO_VER}, 包管理器: $
 APP_VERSION=$(grep '"version":' package.json | head -n 1 | awk -F: '{ print $2 }' | sed 's/[", ]//g')
 log_info "当前项目版本: ${BOLD}v${APP_VERSION}${NC}"
 
-# 3. 依赖检查
-if [ ! -d "node_modules" ]; then
-    log_warn "未检测到 node_modules，正在安装前端依赖..."
-    $PM install
-fi
+# 3. 依赖检查与安装
+log_info "检查并同步前端依赖..."
+$PM install
 
 # 4. 编译前端生产静态资源
 log_info "步骤 1/4: 编译前端页面 (Vite build)..."

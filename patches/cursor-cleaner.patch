@@ -1,0 +1,3015 @@
+diff --git a/build_and_install.sh b/build_and_install.sh
+new file mode 100755
+index 00000000..02de1519
+--- /dev/null
++++ b/build_and_install.sh
+@@ -0,0 +1,134 @@
++#!/bin/bash
++# ==============================================================================
++# Antigravity Tools - macOS 一键编译、打包与自动安装脚本
++# 支持 Cursor 纯净流与点号清洗补丁
++# ==============================================================================
++
++set -eo pipefail
++
++# 颜色与输出格式
++GREEN='\033[0;32m'
++BLUE='\033[0;34m'
++YELLOW='\033[1;33m'
++RED='\033[0;31m'
++CYAN='\033[0;36m'
++BOLD='\033[1m'
++NC='\033[0m' # No Color
++
++log_info() {
++    echo -e "${BLUE}${BOLD}[INFO]${NC} $1"
++}
++
++log_success() {
++    echo -e "${GREEN}${BOLD}[SUCCESS]${NC} $1"
++}
++
++log_warn() {
++    echo -e "${YELLOW}${BOLD}[WARN]${NC} $1"
++}
++
++log_error() {
++    echo -e "${RED}${BOLD}[ERROR]${NC} $1"
++}
++
++# 脚本所在目录定位为项目根目录
++REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++cd "$REPO_DIR"
++
++echo -e "${CYAN}${BOLD}"
++echo "=========================================================="
++echo "    🚀 Antigravity Tools 一键编译打包与安装脚本"
++echo "=========================================================="
++echo -e "${NC}"
++
++# 1. 自动注入环境变量 (Node / pnpm / Rust / Cargo)
++export PATH="$HOME/.cargo/bin:$HOME/.local/share/pnpm:/usr/local/bin:/opt/homebrew/bin:$PATH"
++
++if [ -d "$HOME/.nvm" ]; then
++    export NVM_DIR="$HOME/.nvm"
++    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh" --no-use 2>/dev/null || true
++    # 将最新安装的 Node 目录加入 PATH
++    LATEST_NVM_NODE=$(ls "$NVM_DIR/versions/node" 2>/dev/null | tail -n 1 || true)
++    if [ -n "$LATEST_NVM_NODE" ]; then
++        export PATH="$NVM_DIR/versions/node/$LATEST_NVM_NODE/bin:$PATH"
++    fi
++fi
++
++# 2. 检查必须的编译工具链
++log_info "检查构建环境..."
++
++if ! command -v node &>/dev/null; then
++    log_error "未找到 Node.js，请先安装 Node.js 或配置 NVM。"
++    exit 1
++fi
++
++if ! command -v cargo &>/dev/null; then
++    log_error "未找到 Rust/Cargo，请检查 ~/.cargo/bin 是否已安装。"
++    exit 1
++fi
++
++PM="npm"
++if command -v pnpm &>/dev/null; then
++    PM="pnpm"
++fi
++
++NODE_VER=$(node -v)
++CARGO_VER=$(cargo --version | awk '{print $1" "$2}')
++log_success "构建环境正常: Node ${NODE_VER}, ${CARGO_VER}, 包管理器: ${PM}"
++
++# 读取当前版本号
++APP_VERSION=$(grep '"version":' package.json | head -n 1 | awk -F: '{ print $2 }' | sed 's/[", ]//g')
++log_info "当前项目版本: ${BOLD}v${APP_VERSION}${NC}"
++
++# 3. 依赖检查
++if [ ! -d "node_modules" ]; then
++    log_warn "未检测到 node_modules，正在安装前端依赖..."
++    $PM install
++fi
++
++# 4. 编译前端生产静态资源
++log_info "步骤 1/4: 编译前端页面 (Vite build)..."
++$PM run build
++
++# 5. 编译并打包 Tauri macOS 应用
++log_info "步骤 2/4: 编译 Rust 后端并打包 macOS App (Release 模式)..."
++$PM exec tauri build --bundles app --ignore-version-mismatches --no-sign
++
++APP_BUNDLE_PATH="$REPO_DIR/src-tauri/target/release/bundle/macos/Antigravity Tools.app"
++
++if [ ! -d "$APP_BUNDLE_PATH" ]; then
++    log_error "打包失败，未找到目标文件: $APP_BUNDLE_PATH"
++    exit 1
++fi
++
++log_success "打包成功: $APP_BUNDLE_PATH"
++
++# 6. 覆盖安装至 /Applications
++log_info "步骤 3/4: 安装至 /Applications..."
++
++# 优雅退出正在运行的旧版本
++if pgrep -f "Antigravity Tools" >/dev/null 2>&1; then
++    log_warn "检测到旧版 Antigravity Tools 正在运行，正在退出..."
++    pkill -f "Antigravity Tools" 2>/dev/null || true
++    sleep 1
++    # 强制清理未退出的残留进程
++    pkill -9 -f "Antigravity Tools" 2>/dev/null || true
++fi
++
++TARGET_APP="/Applications/Antigravity Tools.app"
++
++# 采用 ditto 完整覆盖替换（保留 macOS 资源分支与权限）
++ditto "$APP_BUNDLE_PATH" "$TARGET_APP"
++
++# 7. 移除 macOS Gatekeeper 隔离属性（防止提示“已损坏”）
++log_info "步骤 4/4: 清除安全隔离属性 (移除 Gatekeeper Quarantine)..."
++xattr -cr "$TARGET_APP" 2>/dev/null || true
++
++# 8. 启动应用
++log_info "正在启动新版本 Antigravity Tools..."
++open "$TARGET_APP"
++
++echo -e "\n${GREEN}${BOLD}=========================================================="
++echo "    🎉 Antigravity Tools v${APP_VERSION} 编译并安装成功！"
++echo "    ✨ Cursor 纯净流与点号清洗补丁已成功内置！"
++echo "==========================================================${NC}\n"
+diff --git a/pnpm-workspace.yaml b/pnpm-workspace.yaml
+new file mode 100644
+index 00000000..5ed0b5af
+--- /dev/null
++++ b/pnpm-workspace.yaml
+@@ -0,0 +1,2 @@
++allowBuilds:
++  esbuild: true
+diff --git a/src-tauri/src/commands/mod.rs b/src-tauri/src/commands/mod.rs
+index d5da3cc1..2d1caf75 100644
+--- a/src-tauri/src/commands/mod.rs
++++ b/src-tauri/src/commands/mod.rs
+@@ -430,6 +430,7 @@ pub async fn save_config(
+     crate::proxy::update_thinking_budget_config(config.proxy.thinking_budget.clone());
+     crate::proxy::update_global_system_prompt_config(config.proxy.global_system_prompt.clone());
+     crate::proxy::update_image_thinking_mode(config.proxy.image_thinking_mode.clone());
++    crate::proxy::update_cursor_cleaner(config.proxy.cursor_cleaner);
+     crate::proxy::config::update_global_compression_level(
+         config.proxy.experimental.compression_level.clone(),
+         config.proxy.experimental.enable_usage_scaling,
+@@ -453,72 +454,67 @@ pub async fn save_config(
+         monitor.set_capture_health_logs(config.proxy.capture_health_logs);
+     }
+ 
+-    // 热更新正在运行的服务
+-    let instance_lock = proxy_state.instance.read().await;
+-    if let Some(instance) = instance_lock.as_ref() {
+-        // 更新模型映射
+-        instance.axum_server.update_mapping(&config.proxy).await;
+-        // 更新仅暴露真实配额模型开关
+-        instance
+-            .axum_server
+-            .update_only_raw_quota_models(config.proxy.only_raw_quota_models)
+-            .await;
+-        // 更新上游代理
+-        instance
+-            .axum_server
+-            .update_proxy(config.proxy.upstream_proxy.clone())
+-            .await;
+-        // 更新安全策略 (auth)
+-        instance.axum_server.update_security(&config.proxy).await;
+-        // 更新 z.ai 配置
+-        instance.axum_server.update_zai(&config.proxy).await;
+-        // 更新实验性配置
+-        instance
+-            .axum_server
+-            .update_experimental(&config.proxy)
+-            .await;
+-        // 更新调试日志配置
+-        instance
+-            .axum_server
+-            .update_debug_logging(&config.proxy)
+-            .await;
+-        // [NEW] 更新 User-Agent 配置
+-        instance.axum_server.update_user_agent(&config.proxy).await;
+-        // 更新 Thinking Budget 配置
+-        crate::proxy::update_thinking_budget_config(config.proxy.thinking_budget.clone());
+-        // [NEW] 更新全局系统提示词配置
+-        crate::proxy::update_global_system_prompt_config(config.proxy.global_system_prompt.clone());
+-        // [NEW] 更新全局图像思维模式配置
+-        crate::proxy::update_image_thinking_mode(config.proxy.image_thinking_mode.clone());
+-        // [NEW] 更新全局压缩等级配置
+-        crate::proxy::config::update_global_compression_level(
+-            config.proxy.experimental.compression_level.clone(),
+-            config.proxy.experimental.enable_usage_scaling,
+-        );
+-        crate::proxy::config::update_global_audit_config(
+-            config.proxy.experimental.payload_storage_mode.clone(),
+-            config.proxy.experimental.log_retention_days,
+-            config.proxy.experimental.thinking_store_enabled,
+-            config.proxy.experimental.thinking_retention_days,
+-            Some(config.proxy.experimental.thinking_max_memory_turns),
+-        );
+-        crate::proxy::config::update_global_thresholds(
+-            config.proxy.experimental.context_compression_threshold_l1,
+-            config.proxy.experimental.context_compression_threshold_l2,
+-            config.proxy.experimental.context_compression_threshold_l3,
+-        );
+-        // 更新代理池配置
+-        instance
+-            .axum_server
+-            .update_proxy_pool(config.proxy.proxy_pool.clone())
+-            .await;
+-        // 更新熔断配置
+-        instance
+-            .token_manager
+-            .update_circuit_breaker_config(config.circuit_breaker.clone())
+-            .await;
+-        tracing::debug!("已同步热更新反代服务配置");
+-    }
++    // 热更新正在运行的服务（后台异步执行，不阻塞配置保存的即时响应）
++    let proxy_state_clone = proxy_state.inner().clone();
++    let config_clone = config.clone();
++    tokio::spawn(async move {
++        let instance_lock = proxy_state_clone.instance.read().await;
++        if let Some(instance) = instance_lock.as_ref() {
++            // 更新模型映射
++            instance
++                .axum_server
++                .update_mapping(&config_clone.proxy)
++                .await;
++            // 更新仅暴露真实配额模型开关
++            instance
++                .axum_server
++                .update_only_raw_quota_models(config_clone.proxy.only_raw_quota_models)
++                .await;
++            // 更新 Cursor 纯净流与点号清洗开关
++            instance
++                .axum_server
++                .update_cursor_cleaner(config_clone.proxy.cursor_cleaner)
++                .await;
++            // 更新上游代理
++            instance
++                .axum_server
++                .update_proxy(config_clone.proxy.upstream_proxy.clone())
++                .await;
++            // 更新安全策略 (auth)
++            instance
++                .axum_server
++                .update_security(&config_clone.proxy)
++                .await;
++            // 更新 z.ai 配置
++            instance.axum_server.update_zai(&config_clone.proxy).await;
++            // 更新实验性配置
++            instance
++                .axum_server
++                .update_experimental(&config_clone.proxy)
++                .await;
++            // 更新调试日志配置
++            instance
++                .axum_server
++                .update_debug_logging(&config_clone.proxy)
++                .await;
++            // [NEW] 更新 User-Agent 配置
++            instance
++                .axum_server
++                .update_user_agent(&config_clone.proxy)
++                .await;
++            // 更新代理池配置
++            instance
++                .axum_server
++                .update_proxy_pool(config_clone.proxy.proxy_pool.clone())
++                .await;
++            // 更新熔断配置
++            instance
++                .token_manager
++                .update_circuit_breaker_config(config_clone.circuit_breaker.clone())
++                .await;
++            tracing::debug!("已异步完成热更新反代服务配置");
++        }
++    });
+ 
+     Ok(())
+ }
+diff --git a/src-tauri/src/commands/proxy.rs b/src-tauri/src/commands/proxy.rs
+index 5c40b574..ad19e6c2 100644
+--- a/src-tauri/src/commands/proxy.rs
++++ b/src-tauri/src/commands/proxy.rs
+@@ -314,6 +314,8 @@ pub async fn ensure_admin_server(
+ 
+     // [NEW] 初始化全局 Thinking Budget 配置
+     crate::proxy::update_thinking_budget_config(config.thinking_budget.clone());
++    // [NEW] 初始化全局 Cursor 纯净流与点号清洗配置
++    crate::proxy::update_cursor_cleaner(config.cursor_cleaner);
+     // [NEW] 初始化全局系统提示词配置
+     crate::proxy::update_global_system_prompt_config(config.global_system_prompt.clone());
+     // [NEW] 初始化全局图像思维模式配置
+diff --git a/src-tauri/src/modules/update_checker.rs b/src-tauri/src/modules/update_checker.rs
+index 8e9b9ff4..4af4efe2 100644
+--- a/src-tauri/src/modules/update_checker.rs
++++ b/src-tauri/src/modules/update_checker.rs
+@@ -4,11 +4,11 @@ use serde::{Deserialize, Serialize};
+ use std::time::{SystemTime, UNIX_EPOCH};
+ 
+ const GITHUB_API_URL: &str =
+-    "https://api.github.com/repos/lbjlaq/Antigravity-Manager/releases/latest";
++    "https://api.github.com/repos/weifeng0222/Antigravity-Manager/releases/latest";
+ const GITHUB_RAW_URL: &str =
+-    "https://raw.githubusercontent.com/lbjlaq/Antigravity-Manager/main/package.json";
++    "https://raw.githubusercontent.com/weifeng0222/Antigravity-Manager/main/package.json";
+ const JSDELIVR_URL: &str =
+-    "https://cdn.jsdelivr.net/gh/lbjlaq/Antigravity-Manager@main/package.json";
++    "https://cdn.jsdelivr.net/gh/weifeng0222/Antigravity-Manager@main/package.json";
+ const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+ const DEFAULT_CHECK_INTERVAL_HOURS: u64 = 24;
+ 
+@@ -57,7 +57,7 @@ struct GitHubRelease {
+ }
+ 
+ const UPDATER_JSON_URL: &str =
+-    "https://github.com/lbjlaq/Antigravity-Manager/releases/latest/download/updater.json";
++    "https://github.com/weifeng0222/Antigravity-Manager/releases/latest/download/updater.json";
+ 
+ pub fn get_upstream_proxy_url() -> Option<String> {
+     if let Ok(config) = crate::modules::config::load_app_config() {
+@@ -213,7 +213,7 @@ async fn check_updater_json() -> Result<UpdateInfo, String> {
+     }
+ 
+     let download_url = format!(
+-        "https://github.com/lbjlaq/Antigravity-Manager/releases/tag/v{}",
++        "https://github.com/weifeng0222/Antigravity-Manager/releases/tag/v{}",
+         latest_version
+     );
+ 
+@@ -353,7 +353,7 @@ async fn check_static_url(url: &str, source_name: &str) -> Result<UpdateInfo, St
+     }
+ 
+     // fallback sources generally don't provide release notes or download specific URL, construct generic
+-    let download_url = "https://github.com/lbjlaq/Antigravity-Manager/releases/latest".to_string();
++    let download_url = "https://github.com/weifeng0222/Antigravity-Manager/releases/latest".to_string();
+     let release_notes = format!(
+         "New version detected via {}. Please check release page for details.",
+         source_name
+diff --git a/src-tauri/src/proxy/common/cursor_cleaner.rs b/src-tauri/src/proxy/common/cursor_cleaner.rs
+new file mode 100644
+index 00000000..f8ba7be4
+--- /dev/null
++++ b/src-tauri/src/proxy/common/cursor_cleaner.rs
+@@ -0,0 +1,595 @@
++use regex::Regex;
++use std::collections::HashMap;
++use std::sync::OnceLock;
++
++// 1. 正则安全规则组（绝对不误伤单词间空格、换行、单句号）
++
++/// 纯瀑布心跳点号：必须包含至少2个点号或省略号，绝对不误伤单个正常句号 "." 以及纯空格换行
++pub fn pure_dots() -> &'static Regex {
++    static RE: OnceLock<Regex> = OnceLock::new();
++    RE.get_or_init(|| Regex::new(r"^[\s\r\n]*(\.{2,}|…+)[\.\s…\r\n]*$").unwrap())
++}
++
++/// 开头多余点号/瀑布省略号（如 "...Creating" -> "Creating"），必须有2个及以上点号
++pub fn leading_dots() -> &'static Regex {
++    static RE: OnceLock<Regex> = OnceLock::new();
++    RE.get_or_init(|| Regex::new(r"^\s*(\.{2,}|…+)\s*").unwrap())
++}
++
++/// 结尾多余瀑布点号（如 "backup......." -> "backup"），必须有2个及以上点号
++pub fn trailing_dots() -> &'static Regex {
++    static RE: OnceLock<Regex> = OnceLock::new();
++    RE.get_or_init(|| Regex::new(r"\s*(\.{2,}|…+)\s*$").unwrap())
++}
++
++/// 文本内部连续4个以上的瀑布点号，折叠为常规省略号
++pub fn cascade_dots() -> &'static Regex {
++    static RE: OnceLock<Regex> = OnceLock::new();
++    RE.get_or_init(|| Regex::new(r"\.{4,}").unwrap())
++}
++
++/// 动作/工具调用前推理特征识别（用于将正文中的行动陈述智能收纳进 Cursor Thinking）
++pub fn action_planning_prefix() -> &'static Regex {
++    static RE: OnceLock<Regex> = OnceLock::new();
++    RE.get_or_init(|| {
++        Regex::new(r"(?i)^\s*(An?\b|A Python script\b|Executing\b|Running\b|Checking\b|Searching\b|Creating\b|Looking\b|Examining\b|Investigating\b|Applying\b|Updating\b|Reading\b|Writing\b|Inspecting\b|Managing\b|Modifying\b|Testing\b|Verifying\b|Exploring\b|Finding\b|Analyzing\b|Fixing\b|Reviewing\b|Replacing\b|Generating\b|Building\b|Compiling\b|Directly\b|The\b|In the\b|In\b|For the\b|For\b|This\b|Let me\b|Let's\b|I will\b|I'll\b|I need to\b|I should\b|I can\b|I am\b|I'm\b|We need to\b|We should\b|We will\b|We can\b|First\b|Next\b|Now\b|Then\b|Finally\b|Since\b|Because\b|However\b|Unfortunately\b|To fix\b|To resolve\b|To address\b|To verify\b|To check\b|To investigate\b|To proceed\b|Based on\b|According to\b|Thought\b|Thinking\b|Plan\b|Action\b|Step\b)").unwrap()
++    })
++}
++
++/// 中文字符检测：若包含中文，说明是正式正文回复，切回正常正文通道
++pub fn chinese_char() -> &'static Regex {
++    static RE: OnceLock<Regex> = OnceLock::new();
++    RE.get_or_init(|| Regex::new(r"[\u{4e00}-\u{9fa5}]").unwrap())
++}
++
++/// 点号/省略号检测
++pub fn contains_dots() -> &'static Regex {
++    static RE: OnceLock<Regex> = OnceLock::new();
++    RE.get_or_init(|| Regex::new(r"[\.…]").unwrap())
++}
++
++/// 检测并剥离 Gemini / Claude 等模型在长上下文下偶发泄漏的 `call:default_api:*` 伪代码语法
++pub fn clean_default_api_leakage(text: &str) -> String {
++    if !text.contains("default_api:") {
++        return text.to_string();
++    }
++    // 1. 若行首或段首带有孤立点号（例如 ".\n.call:default_api:" 或以 ".call:default_api:" 开头），剥离前导多余点号
++    static RE_LEAD_DOT: OnceLock<Regex> = OnceLock::new();
++    let re_lead_dot =
++        RE_LEAD_DOT.get_or_init(|| Regex::new(r"(?m)(^|\n)\s*\.\s*call:default_api:").unwrap());
++    let s = re_lead_dot.replace_all(text, "${1}call:default_api:");
++
++    // 2. 剥离无论是闭合 `{...}` 还是流式未闭合到结尾 `{...` 的伪工具调用，完整保留句末句号与正常内容
++    static RE_LEAK: OnceLock<Regex> = OnceLock::new();
++    let re_leak = RE_LEAK.get_or_init(|| {
++        Regex::new(r"(?s)call:default_api:[A-Za-z0-9_-]+(?:\s*\{[^\}]*\}|\s*\([^\)]*\)|\s*\{.*$|\s*\(.*$)?").unwrap()
++    });
++    let s = re_leak.replace_all(&s, "");
++    s.to_string()
++}
++
++#[derive(Debug, Clone, PartialEq)]
++enum BlockType {
++    Text,
++    Thinking,
++    ConvertedThinking,
++    ToolUse,
++    Other(String),
++}
++
++/// 有状态的 Cursor 流式清洗器（支持 Anthropic 和 OpenAI 协议）
++#[derive(Debug, Default)]
++pub struct CursorStreamCleaner {
++    buffer: String,
++    anthropic_block_types: HashMap<u64, BlockType>,
++}
++
++impl CursorStreamCleaner {
++    pub fn new() -> Self {
++        Self::default()
++    }
++
++    /// 接收流式 chunk，按完整 SSE 事件块 (\n\n) 进行清洗并返回清洗后的文本
++    pub fn clean_chunk(&mut self, chunk_str: &str) -> String {
++        self.buffer.push_str(chunk_str);
++        let mut out = String::new();
++
++        while let Some((boundary_idx, delim_len)) = self.find_block_boundary() {
++            let raw_block: String = self.buffer[..boundary_idx].to_string();
++            self.buffer.drain(..boundary_idx + delim_len);
++
++            if raw_block.trim().is_empty() {
++                out.push_str("\n\n");
++                continue;
++            }
++
++            let cleaned = self.clean_sse_block(&raw_block);
++            out.push_str(&cleaned);
++        }
++
++        out
++    }
++
++    /// 在流结束时冲刷可能残留在 buffer 中的最后一块数据
++    pub fn flush(&mut self) -> Option<String> {
++        if self.buffer.trim().is_empty() {
++            self.buffer.clear();
++            None
++        } else {
++            let raw = std::mem::take(&mut self.buffer);
++            Some(self.clean_sse_block(&raw))
++        }
++    }
++
++    fn find_block_boundary(&self) -> Option<(usize, usize)> {
++        let n1 = self.buffer.find("\r\n\r\n");
++        let n2 = self.buffer.find("\n\n");
++        match (n1, n2) {
++            (Some(i1), Some(i2)) => {
++                if i1 <= i2 {
++                    Some((i1, 4))
++                } else {
++                    Some((i2, 2))
++                }
++            }
++            (Some(i1), None) => Some((i1, 4)),
++            (None, Some(i2)) => Some((i2, 2)),
++            (None, None) => None,
++        }
++    }
++
++    fn clean_sse_block(&mut self, raw_block: &str) -> String {
++        let mut event_name: Option<String> = None;
++        let mut data_str: Option<String> = None;
++        let mut other_lines = Vec::new();
++
++        for line in raw_block.lines() {
++            if let Some(rest) = line.strip_prefix("event:") {
++                event_name = Some(rest.trim().to_string());
++            } else if let Some(rest) = line.strip_prefix("data:") {
++                let val = rest.trim();
++                data_str = match data_str {
++                    None => Some(val.to_string()),
++                    Some(prev) => Some(format!("{}\n{}", prev, val)),
++                };
++            } else {
++                other_lines.push(line);
++            }
++        }
++
++        // 1. 无 data 字段原样透传
++        let data_raw = match data_str {
++            Some(d) => d,
++            None => {
++                return format!("{}\n\n", raw_block);
++            }
++        };
++
++        // 2. [DONE] 原样输出
++        if data_raw == "[DONE]" {
++            return format!("{}\n\n", raw_block);
++        }
++
++        // 3. 尝试解析 JSON
++        let mut val: serde_json::Value = match serde_json::from_str(&data_raw) {
++            Ok(v) => v,
++            Err(_) => {
++                return format!("{}\n\n", raw_block);
++            }
++        };
++
++        // ====================================================================
++        // A. 处理 Anthropic Messages 协议 (/v1/messages)
++        // ====================================================================
++        if let Some(typ) = val.get("type").and_then(|v| v.as_str()) {
++            if typ.starts_with("content_block_") {
++                let block_index = val.get("index").and_then(|v| v.as_u64()).unwrap_or(0);
++
++                if typ == "content_block_start" {
++                    let orig_type = val
++                        .pointer("/content_block/type")
++                        .and_then(|v| v.as_str())
++                        .unwrap_or("text");
++                    let btype = match orig_type {
++                        "text" => BlockType::Text,
++                        "thinking" => BlockType::Thinking,
++                        "tool_use" => BlockType::ToolUse,
++                        other => BlockType::Other(other.to_string()),
++                    };
++                    self.anthropic_block_types.insert(block_index, btype);
++                    return self.rebuild_block(event_name.as_deref(), &other_lines, &val);
++                }
++
++                if typ == "content_block_delta" {
++                    let delta_type = val
++                        .pointer("/delta/type")
++                        .and_then(|v| v.as_str())
++                        .unwrap_or("")
++                        .to_string();
++
++                    if delta_type == "text_delta" {
++                        let text = val
++                            .pointer("/delta/text")
++                            .and_then(|v| v.as_str())
++                            .unwrap_or("")
++                            .to_string();
++
++                        // 纯点号心跳过滤（过滤为 : ping）
++                        if pure_dots().is_match(&text) {
++                            return ": ping\n\n".to_string();
++                        }
++
++                        // 清洗多余点号与伪工具泄漏
++                        let text = leading_dots().replace(&text, "");
++                        let text = trailing_dots().replace(&text, "");
++                        let text = cascade_dots().replace_all(&text, "...");
++                        let text = clean_default_api_leakage(&text);
++
++                        let curr_block = self
++                            .anthropic_block_types
++                            .get(&block_index)
++                            .cloned()
++                            .unwrap_or(BlockType::Text);
++
++                        let mut active_block = curr_block;
++                        if active_block == BlockType::Text {
++                            if action_planning_prefix().is_match(text.trim()) {
++                                active_block = BlockType::ConvertedThinking;
++                                self.anthropic_block_types
++                                    .insert(block_index, BlockType::ConvertedThinking);
++                            }
++                        }
++
++                        if active_block == BlockType::ConvertedThinking {
++                            if chinese_char().is_match(&text) {
++                                // 出现中文，恢复为正文通道
++                                self.anthropic_block_types
++                                    .insert(block_index, BlockType::Text);
++                                if let Some(delta) = val.get_mut("delta") {
++                                    delta["text"] = serde_json::Value::String(text.clone());
++                                }
++                            } else {
++                                // 转为 thinking_delta，Cursor 自动折叠进思考抽屉！
++                                if let Some(delta) = val.get_mut("delta") {
++                                    delta["type"] =
++                                        serde_json::Value::String("thinking_delta".to_string());
++                                    delta["thinking"] = serde_json::Value::String(text.clone());
++                                    if let Some(obj) = delta.as_object_mut() {
++                                        obj.remove("text");
++                                    }
++                                }
++                            }
++                        } else {
++                            if let Some(delta) = val.get_mut("delta") {
++                                delta["text"] = serde_json::Value::String(text);
++                            }
++                        }
++
++                        return self.rebuild_block(event_name.as_deref(), &other_lines, &val);
++                    } else if delta_type == "thinking_delta" {
++                        let text = val
++                            .pointer("/delta/thinking")
++                            .and_then(|v| v.as_str())
++                            .unwrap_or("")
++                            .to_string();
++
++                        if pure_dots().is_match(&text) {
++                            return ": ping\n\n".to_string();
++                        }
++
++                        let text = leading_dots().replace(&text, "");
++                        let text = trailing_dots().replace(&text, "");
++                        let text = cascade_dots().replace_all(&text, "...");
++
++                        if let Some(delta) = val.get_mut("delta") {
++                            delta["thinking"] = serde_json::Value::String(text.into_owned());
++                        }
++
++                        return self.rebuild_block(event_name.as_deref(), &other_lines, &val);
++                    }
++
++                    return self.rebuild_block(event_name.as_deref(), &other_lines, &val);
++                }
++
++                if typ == "content_block_stop" {
++                    return self.rebuild_block(event_name.as_deref(), &other_lines, &val);
++                }
++            }
++        }
++
++        // ====================================================================
++        // B. 处理 OpenAI Responses 协议: response.reasoning_summary_text.delta
++        // ====================================================================
++        if val.get("type").and_then(|v| v.as_str()) == Some("response.reasoning_summary_text.delta")
++        {
++            let reasoning = val
++                .get("delta")
++                .and_then(|v| v.as_str())
++                .unwrap_or("")
++                .to_string();
++
++            if pure_dots().is_match(&reasoning) {
++                return ": ping\n\n".to_string();
++            }
++
++            let reasoning = leading_dots().replace(&reasoning, "");
++            let reasoning = trailing_dots().replace(&reasoning, "");
++            let reasoning = cascade_dots().replace_all(&reasoning, "...");
++            let reasoning = clean_default_api_leakage(&reasoning);
++
++            val["delta"] = serde_json::Value::String(reasoning);
++            return self.rebuild_block(event_name.as_deref(), &other_lines, &val);
++        }
++
++        // ====================================================================
++        // B2. 处理 OpenAI Responses 协议: response.output_text.delta
++        // ====================================================================
++        if val.get("type").and_then(|v| v.as_str()) == Some("response.output_text.delta") {
++            let text = val
++                .get("delta")
++                .and_then(|v| v.as_str())
++                .unwrap_or("")
++                .to_string();
++
++            if pure_dots().is_match(&text) {
++                return ": ping\n\n".to_string();
++            }
++
++            let text = leading_dots().replace(&text, "");
++            let text = trailing_dots().replace(&text, "");
++            let text = cascade_dots().replace_all(&text, "...");
++            let text = clean_default_api_leakage(&text);
++
++            if text.is_empty() {
++                return ": ping\n\n".to_string();
++            }
++
++            val["delta"] = serde_json::Value::String(text);
++            return self.rebuild_block(event_name.as_deref(), &other_lines, &val);
++        }
++
++        if val.get("type").and_then(|v| v.as_str()) == Some("response.output_text.done") {
++            if let Some(text) = val.get("text").and_then(|v| v.as_str()) {
++                let cleaned = clean_default_api_leakage(text);
++                val["text"] = serde_json::Value::String(cleaned);
++            }
++            return self.rebuild_block(event_name.as_deref(), &other_lines, &val);
++        }
++
++        // ====================================================================
++        // C. 处理 OpenAI Chat & Legacy Completions 协议
++        // ====================================================================
++        let choice = val.pointer("/choices/0");
++        let delta = choice.and_then(|c| c.get("delta"));
++
++        let mut content: Option<String> = None;
++        let mut content_type: Option<&str> = None;
++
++        if let Some(d) = val.get("delta").and_then(|v| v.as_str()) {
++            content = Some(d.to_string());
++            content_type = Some("responses_delta");
++        } else if let Some(c) = delta
++            .and_then(|d| d.get("content"))
++            .and_then(|v| v.as_str())
++        {
++            content = Some(c.to_string());
++            content_type = Some("chat_delta");
++        } else if let Some(t) = choice.and_then(|c| c.get("text")).and_then(|v| v.as_str()) {
++            content = Some(t.to_string());
++            content_type = Some("choice_text");
++        } else if let Some(c) = val.get("content").and_then(|v| v.as_str()) {
++            content = Some(c.to_string());
++            content_type = Some("top_content");
++        } else if let Some(t) = val.get("text").and_then(|v| v.as_str()) {
++            content = Some(t.to_string());
++            content_type = Some("top_text");
++        }
++
++        let has_payload = delta.map_or(false, |d| {
++            d.get("tool_calls").is_some() || d.get("reasoning_content").is_some()
++        }) || val.get("tool_calls").is_some()
++            || val.get("thinking").is_some()
++            || val.get("function_call").is_some()
++            || choice.map_or(false, |c| {
++                c.get("tool_calls").is_some() || c.get("finish_reason").is_some()
++            })
++            || val
++                .get("type")
++                .and_then(|v| v.as_str())
++                .map_or(false, |t| t.contains("function_call"));
++
++        if let (Some(text), Some(ctype)) = (content, content_type) {
++            if !has_payload && pure_dots().is_match(&text) {
++                return ": ping\n\n".to_string();
++            }
++
++            let cleaned = leading_dots().replace(&text, "");
++            let cleaned = trailing_dots().replace(&cleaned, "");
++            let mut cleaned = cascade_dots().replace_all(&cleaned, "...").into_owned();
++            cleaned = clean_default_api_leakage(&cleaned);
++
++            if cleaned.trim().is_empty() {
++                if contains_dots().is_match(&text) {
++                    if !has_payload {
++                        return ": ping\n\n".to_string();
++                    } else {
++                        cleaned.clear();
++                    }
++                }
++            }
++
++            if cleaned != text {
++                match ctype {
++                    "responses_delta" => {
++                        val["delta"] = serde_json::Value::String(cleaned);
++                    }
++                    "chat_delta" => {
++                        if let Some(d) = val.pointer_mut("/choices/0/delta") {
++                            d["content"] = serde_json::Value::String(cleaned);
++                        }
++                    }
++                    "choice_text" => {
++                        if let Some(c) = val.pointer_mut("/choices/0") {
++                            c["text"] = serde_json::Value::String(cleaned);
++                        }
++                    }
++                    "top_content" => {
++                        val["content"] = serde_json::Value::String(cleaned);
++                    }
++                    "top_text" => {
++                        val["text"] = serde_json::Value::String(cleaned);
++                    }
++                    _ => {}
++                }
++            }
++        }
++
++        self.rebuild_block(event_name.as_deref(), &other_lines, &val)
++    }
++
++    fn rebuild_block(
++        &self,
++        event_name: Option<&str>,
++        other_lines: &[&str],
++        val: &serde_json::Value,
++    ) -> String {
++        let mut out = String::new();
++        if let Some(ev) = event_name {
++            out.push_str("event: ");
++            out.push_str(ev);
++            out.push('\n');
++        }
++        for o in other_lines {
++            out.push_str(o);
++            out.push('\n');
++        }
++        out.push_str("data: ");
++        out.push_str(&val.to_string());
++        out.push_str("\n\n");
++        out
++    }
++}
++
++/// 快捷单块清洗接口（向下兼容）
++pub fn clean_cursor_sse_chunk(chunk_str: &str) -> String {
++    let mut cleaner = CursorStreamCleaner::new();
++    let mut out = cleaner.clean_chunk(chunk_str);
++    if let Some(rem) = cleaner.flush() {
++        out.push_str(&rem);
++    }
++    out
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn test_pure_dots_filtering() {
++        let mut cleaner = CursorStreamCleaner::new();
++        let sse = "data: {\"choices\":[{\"delta\":{\"content\":\".....\"}}]}\n\n";
++        let out = cleaner.clean_chunk(sse);
++        assert_eq!(out, ": ping\n\n");
++
++        let normal = "data: {\"choices\":[{\"delta\":{\"content\":\".\"}}]}\n\n";
++        let out_normal = cleaner.clean_chunk(normal);
++        assert!(out_normal.contains("\".\""));
++    }
++
++    #[test]
++    fn test_cascade_dots_collapsing() {
++        let mut cleaner = CursorStreamCleaner::new();
++        let sse = "data: {\"choices\":[{\"delta\":{\"content\":\"Searching.......done\"}}]}\n\n";
++        let out = cleaner.clean_chunk(sse);
++        assert!(out.contains("Searching...done"));
++    }
++
++    #[test]
++    fn test_anthropic_action_planning_to_thinking() {
++        let mut cleaner = CursorStreamCleaner::new();
++
++        // 1. content_block_start
++        let start = "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n";
++        let out_start = cleaner.clean_chunk(start);
++        assert!(out_start.contains("content_block_start"));
++
++        // 2. content_block_delta with action planning prefix
++        let delta = "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"The user observes that cold accounts are not being automatically activated...\"}}\n\n";
++        let out_delta = cleaner.clean_chunk(delta);
++        assert!(out_delta.contains("\"type\":\"thinking_delta\""));
++        assert!(out_delta.contains("\"thinking\":\"The user observes that cold accounts are not being automatically activated\""));
++        assert!(!out_delta.contains("\"text\":"));
++
++        // 3. Subsequent English sentence remains in thinking
++        let delta2 = "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Let's check the code implementation.\"}}\n\n";
++        let out_delta2 = cleaner.clean_chunk(delta2);
++        assert!(out_delta2.contains("\"type\":\"thinking_delta\""));
++
++        // 4. If Chinese appears, converts back to text_delta
++        let delta_cn = "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"好的，我现在为您修复这个问题。\"}}\n\n";
++        let out_delta_cn = cleaner.clean_chunk(delta_cn);
++        assert!(out_delta_cn.contains("\"type\":\"text_delta\""));
++        assert!(out_delta_cn.contains("\"text\":\"好的，我现在为您修复这个问题。\""));
++    }
++
++    #[test]
++    fn test_action_planning_prefix_patterns() {
++        assert!(action_planning_prefix().is_match(
++            "The system indicates that the modification has been applied to account_pool.py"
++        ));
++        assert!(action_planning_prefix().is_match("The patch failed with an `invalid format` error, likely due to a minor syntax mismatch in the unified diff format required by `ApplyPatch`"));
++        assert!(action_planning_prefix().is_match("The"));
++        assert!(action_planning_prefix().is_match("  \n The patch failed"));
++        assert!(
++            action_planning_prefix().is_match("Executing cargo check to verify code compilation")
++        );
++        assert!(action_planning_prefix().is_match("Let me check the logs first"));
++        assert!(action_planning_prefix().is_match("To fix this issue, I will read the file"));
++        assert!(action_planning_prefix().is_match("Unfortunately the command failed"));
++        assert!(!chinese_char().is_match(
++            "The system indicates that the modification has been applied to account_pool.py"
++        ));
++        assert!(chinese_char().is_match("好的，我已经为您应用了修改"));
++    }
++
++    #[test]
++    fn test_clean_default_api_leakage() {
++        // 1. Image #36 real-world sample
++        let s1 = "The hypothesis is that a single request to the responses endpoint will initiate the 5-hour rolling window.call:default_api:Shell{description:Check auth file of 1wkpzhugbo6t1t_dr.com}";
++        let cleaned1 = clean_default_api_leakage(s1);
++        assert_eq!(
++            cleaned1,
++            "The hypothesis is that a single request to the responses endpoint will initiate the 5-hour rolling window."
++        );
++
++        // 2. Database real-world sample 2
++        let s2 = "continue.off is present.call:default_api:Shell{description:Run: ls -la /weifeng/.codex-acc}";
++        let cleaned2 = clean_default_api_leakage(s2);
++        assert_eq!(cleaned2, "continue.off is present.");
++
++        // 3. Unclosed streaming fragment
++        let s3 = "ay for the updated logic.call:default_api:Shell{description:Kill current stuck warmup daemo";
++        let cleaned3 = clean_default_api_leakage(s3);
++        assert_eq!(cleaned3, "ay for the updated logic.");
++
++        // 4. Standalone with leading dot
++        let s4 = ".call:default_api:Shell{description:Check auth file}";
++        let cleaned4 = clean_default_api_leakage(s4);
++        assert_eq!(cleaned4.trim(), "");
++
++        // 5. Normal text with periods should NOT be harmed
++        let s5 = "This is a normal sentence. Version 1.2.3 is released.";
++        assert_eq!(clean_default_api_leakage(s5), s5);
++    }
++
++    #[test]
++    fn test_codex_output_text_delta_cleaning() {
++        let mut cleaner = CursorStreamCleaner::new();
++
++        // Codex response.output_text.delta containing call:default_api leakage
++        let sse = "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"The rolling window.call:default_api:Shell{description:Check auth file}\"}\n\n";
++        let out = cleaner.clean_chunk(sse);
++        assert!(out.contains("The rolling window."));
++        assert!(!out.contains("call:default_api"));
++    }
++}
+diff --git a/src-tauri/src/proxy/common/mod.rs b/src-tauri/src/proxy/common/mod.rs
+index 8f6937a6..7043c5e1 100644
+--- a/src-tauri/src/proxy/common/mod.rs
++++ b/src-tauri/src/proxy/common/mod.rs
+@@ -4,6 +4,7 @@
+ // pub mod rate_limiter;
+ pub mod client_adapter;
+ pub mod client_adapters;
++pub mod cursor_cleaner;
+ pub mod json_schema;
+ pub mod model_mapping;
+ pub mod schema_cache;
+diff --git a/src-tauri/src/proxy/config.rs b/src-tauri/src/proxy/config.rs
+index 2f40678a..3f4a1172 100644
+--- a/src-tauri/src/proxy/config.rs
++++ b/src-tauri/src/proxy/config.rs
+@@ -146,6 +146,33 @@ pub fn update_image_thinking_mode(mode: Option<String>) {
+     }
+ }
+ 
++// ============================================================================
++// 全局 Cursor 纯净流与点号清洗配置存储
++// ============================================================================
++static GLOBAL_CURSOR_CLEANER: OnceLock<RwLock<bool>> = OnceLock::new();
++
++pub fn is_cursor_cleaner_enabled() -> bool {
++    GLOBAL_CURSOR_CLEANER
++        .get()
++        .and_then(|lock| lock.read().ok())
++        .map(|v| *v)
++        .unwrap_or(false)
++}
++
++pub fn update_cursor_cleaner(enabled: bool) {
++    if let Some(lock) = GLOBAL_CURSOR_CLEANER.get() {
++        if let Ok(mut cfg) = lock.write() {
++            if *cfg != enabled {
++                *cfg = enabled;
++                tracing::info!("[Cursor-Cleaner] Global config updated: {}", enabled);
++            }
++        }
++    } else {
++        let _ = GLOBAL_CURSOR_CLEANER.set(RwLock::new(enabled));
++        tracing::info!("[Cursor-Cleaner] Global config initialized: {}", enabled);
++    }
++}
++
+ // ============================================================================
+ // 全局压缩等级配置存储
+ // ============================================================================
+@@ -929,6 +956,10 @@ pub struct ProxyConfig {
+     #[serde(default)]
+     pub only_raw_quota_models: bool,
+ 
++    /// Cursor 纯净流与点号清洗引擎开关
++    #[serde(default)]
++    pub cursor_cleaner: bool,
++
+     /// z.ai provider configuration (Anthropic-compatible).
+     #[serde(default)]
+     pub zai: ZaiConfig,
+@@ -1089,6 +1120,7 @@ impl Default for ProxyConfig {
+             debug_logging: DebugLoggingConfig::default(),
+             upstream_proxy: UpstreamProxyConfig::default(),
+             only_raw_quota_models: false,
++            cursor_cleaner: false,
+             zai: ZaiConfig::default(),
+             scheduling: crate::proxy::sticky_config::StickySessionConfig::default(),
+             experimental: ExperimentalConfig::default(),
+diff --git a/src-tauri/src/proxy/handlers/claude.rs b/src-tauri/src/proxy/handlers/claude.rs
+index bada7bfb..5b79f9cc 100644
+--- a/src-tauri/src/proxy/handlers/claude.rs
++++ b/src-tauri/src/proxy/handlers/claude.rs
+@@ -1543,6 +1543,37 @@ pub async fn handle_messages(
+ 
+                         // 判断客户端期望的格式
+                         if client_wants_stream {
++                            let combined_stream: std::pin::Pin<
++                                Box<
++                                    dyn futures::Stream<Item = Result<Bytes, std::io::Error>>
++                                        + Send,
++                                >,
++                            > = if crate::proxy::is_cursor_cleaner_enabled() {
++                                Box::pin(async_stream::stream! {
++                                    let mut cleaner = crate::proxy::common::cursor_cleaner::CursorStreamCleaner::new();
++                                    let mut s = Box::pin(combined_stream);
++                                    while let Some(item) = s.next().await {
++                                        match item {
++                                            Ok(b) => {
++                                                let text = String::from_utf8_lossy(&b);
++                                                let cleaned = cleaner.clean_chunk(&text);
++                                                if !cleaned.is_empty() {
++                                                    yield Ok(Bytes::from(cleaned));
++                                                }
++                                            }
++                                            Err(e) => yield Err(e),
++                                        }
++                                    }
++                                    if let Some(remaining) = cleaner.flush() {
++                                        if !remaining.is_empty() {
++                                            yield Ok(Bytes::from(remaining));
++                                        }
++                                    }
++                                })
++                            } else {
++                                Box::pin(combined_stream)
++                            };
++
+                             // 客户端本就要 Stream，直接返回 SSE
+                             return Response::builder()
+                                 .status(StatusCode::OK)
+diff --git a/src-tauri/src/proxy/handlers/openai.rs b/src-tauri/src/proxy/handlers/openai.rs
+index 11328f7c..525da36a 100644
+--- a/src-tauri/src/proxy/handlers/openai.rs
++++ b/src-tauri/src/proxy/handlers/openai.rs
+@@ -30,6 +30,7 @@ use crate::modules::account;
+ use crate::proxy::common::client_adapter::CLIENT_ADAPTERS; // [NEW] Adapter Registry
+ use crate::proxy::session_manager::SessionManager;
+ use axum::http::HeaderMap;
++use futures::StreamExt;
+ use std::collections::VecDeque;
+ use std::io;
+ use tokio::task::JoinSet;
+@@ -2613,6 +2614,33 @@ pub async fn handle_chat_completions(
+                         });
+                     }
+                     // 客户端请求流式，返回 SSE
++                    let combined_stream: std::pin::Pin<
++                        Box<dyn futures::Stream<Item = Result<Bytes, String>> + Send>,
++                    > = if crate::proxy::is_cursor_cleaner_enabled() {
++                        Box::pin(async_stream::stream! {
++                            let mut cleaner = crate::proxy::common::cursor_cleaner::CursorStreamCleaner::new();
++                            let mut s = Box::pin(combined_stream);
++                            while let Some(item) = s.next().await {
++                                match item {
++                                    Ok(b) => {
++                                        let text = String::from_utf8_lossy(&b);
++                                        let cleaned = cleaner.clean_chunk(&text);
++                                        if !cleaned.is_empty() {
++                                            yield Ok(Bytes::from(cleaned));
++                                        }
++                                    }
++                                    Err(e) => yield Err(e),
++                                }
++                            }
++                            if let Some(remaining) = cleaner.flush() {
++                                if !remaining.is_empty() {
++                                    yield Ok(Bytes::from(remaining));
++                                }
++                            }
++                        })
++                    } else {
++                        combined_stream
++                    };
+                     let body = Body::from_stream(combined_stream);
+                     return Ok(Response::builder()
+                         .header("Content-Type", "text/event-stream")
+@@ -4433,6 +4461,33 @@ pub async fn handle_completions(
+                             }
+                         });
+                     }
++                    let combined_stream: std::pin::Pin<
++                        Box<dyn futures::Stream<Item = Result<Bytes, String>> + Send>,
++                    > = if crate::proxy::is_cursor_cleaner_enabled() {
++                        Box::pin(async_stream::stream! {
++                            let mut cleaner = crate::proxy::common::cursor_cleaner::CursorStreamCleaner::new();
++                            let mut s = Box::pin(combined_stream);
++                            while let Some(item) = s.next().await {
++                                match item {
++                                    Ok(b) => {
++                                        let text = String::from_utf8_lossy(&b);
++                                        let cleaned = cleaner.clean_chunk(&text);
++                                        if !cleaned.is_empty() {
++                                            yield Ok(Bytes::from(cleaned));
++                                        }
++                                    }
++                                    Err(e) => yield Err(e),
++                                }
++                            }
++                            if let Some(remaining) = cleaner.flush() {
++                                if !remaining.is_empty() {
++                                    yield Ok(Bytes::from(remaining));
++                                }
++                            }
++                        })
++                    } else {
++                        combined_stream
++                    };
+                     return Response::builder()
+                         .header("Content-Type", "text/event-stream")
+                         .header("Cache-Control", "no-cache")
+@@ -6093,7 +6148,7 @@ pub async fn handle_images_edits(
+ // ==========================================
+ 
+ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+-use futures::{SinkExt, StreamExt};
++use futures::SinkExt;
+ use uuid::Uuid;
+ 
+ // ==========================================
+diff --git a/src-tauri/src/proxy/mappers/openai/streaming.rs b/src-tauri/src/proxy/mappers/openai/streaming.rs
+index 0bed3ff8..08aa5f31 100644
+--- a/src-tauri/src/proxy/mappers/openai/streaming.rs
++++ b/src-tauri/src/proxy/mappers/openai/streaming.rs
+@@ -575,6 +575,9 @@ where
+         let mut reasoning_open = false;
+         let mut reasoning_item_seq: u32 = 0;
+         let mut active_reasoning_item_id = String::new();
++        let mut is_action_thinking = false;
++        let mut lead_buffer = String::new();
++        let mut accumulated_action_thinking = String::new();
+ 
+         let mut emitted_tool_calls = std::collections::HashSet::new();
+         let mut accumulated_text = String::new();
+@@ -624,11 +627,100 @@ where
+                                                     for part in parts {
+                                                         thinking_acc.ingest_part(part);
+                                                         let is_thought = part.get("thought").and_then(|v| v.as_bool()).unwrap_or(false);
++                                                        let raw_text_opt = part.get("text").and_then(|t| t.as_str());
++                                                        let is_func_call = part.get("functionCall").is_some();
++                                                        let is_inline_data = part.get("inlineData").is_some();
++
++                                                        if is_func_call {
++                                                            if crate::proxy::is_cursor_cleaner_enabled() && !lead_buffer.trim().is_empty() {
++                                                                if !reasoning_open {
++                                                                    reasoning_output_index = next_output_index;
++                                                                    next_output_index += 1;
++                                                                    active_reasoning_item_id = format!(
++                                                                        "rs_{}_{}",
++                                                                        &item_id_prefix[..16],
++                                                                        reasoning_item_seq
++                                                                    );
++                                                                    reasoning_item_seq += 1;
++                                                                    accumulated_thinking.clear();
++
++                                                                    let output_item_added = json!({"type": "response.output_item.added", "output_index": reasoning_output_index, "item": {"id": &active_reasoning_item_id, "type": "reasoning", "status": "in_progress", "summary": []}});
++                                                                    let output_item_added = inject_seq(output_item_added, &mut sequence_number);
++                                                                    yield Ok::<Bytes, String>(codex_sse_frame(&output_item_added));
++
++                                                                    let part_added = json!({"type": "response.reasoning_summary_part.added", "item_id": &active_reasoning_item_id, "output_index": reasoning_output_index, "summary_index": 0, "part": {"type": "summary_text", "text": ""}});
++                                                                    let part_added = inject_seq(part_added, &mut sequence_number);
++                                                                    yield Ok::<Bytes, String>(codex_sse_frame(&part_added));
++
++                                                                    reasoning_open = true;
++                                                                }
++
++                                                                accumulated_thinking.push_str(&lead_buffer);
++                                                                let delta_ev = json!({
++                                                                    "type": "response.reasoning_summary_text.delta",
++                                                                    "item_id": &active_reasoning_item_id,
++                                                                    "output_index": reasoning_output_index,
++                                                                    "summary_index": 0,
++                                                                    "delta": &lead_buffer
++                                                                });
++                                                                let delta_ev = inject_seq(delta_ev, &mut sequence_number);
++                                                                yield Ok::<Bytes, String>(codex_sse_frame(&delta_ev));
++                                                                lead_buffer.clear();
++                                                            }
++                                                            is_action_thinking = false;
++                                                        }
++
++                                                        let mut clean_text = String::new();
++                                                        if let Some(text) = raw_text_opt {
++                                                            clean_text = text
++                                                                .replace("<think>\n", "")
++                                                                .replace("<think>", "")
++                                                                .replace("\n</think>", "")
++                                                                .replace("</think>", "");
++
++                                                            clean_text = crate::proxy::common::cursor_cleaner::clean_default_api_leakage(&clean_text);
++
++                                                            if crate::proxy::is_cursor_cleaner_enabled() {
++                                                                if crate::proxy::common::cursor_cleaner::pure_dots().is_match(&clean_text) {
++                                                                    clean_text.clear();
++                                                                } else {
++                                                                    clean_text = crate::proxy::common::cursor_cleaner::leading_dots().replace(&clean_text, "").to_string();
++                                                                    clean_text = crate::proxy::common::cursor_cleaner::trailing_dots().replace(&clean_text, "").to_string();
++                                                                    clean_text = crate::proxy::common::cursor_cleaner::cascade_dots().replace_all(&clean_text, "...").to_string();
++                                                                }
++
++                                                                if !clean_text.is_empty() {
++                                                                    if is_thought {
++                                                                        if !lead_buffer.is_empty() {
++                                                                            clean_text = format!("{}{}", lead_buffer, clean_text);
++                                                                            lead_buffer.clear();
++                                                                        }
++                                                                        is_action_thinking = false;
++                                                                    } else if !message_item_emitted {
++                                                                        lead_buffer.push_str(&clean_text);
++                                                                        clean_text.clear();
++                                                                    } else {
++                                                                        is_action_thinking = false;
++                                                                    }
++                                                                }
++                                                            }
++                                                        }
++
++                                                        if !is_thought && !is_action_thinking && !clean_text.is_empty() && !lead_buffer.is_empty() {
++                                                            clean_text = format!("{}{}", lead_buffer, clean_text);
++                                                            lead_buffer.clear();
++                                                        }
++
++                                                        let effective_thought = is_thought || is_action_thinking;
+ 
+                                                         // Close the reasoning summary before opening normal text
+                                                         // or a tool item so output item lifecycles never overlap.
+-                                                        let is_text_or_tool = part.get("text").is_some() || part.get("functionCall").is_some() || part.get("inlineData").is_some();
+-                                                        if is_text_or_tool && !is_thought && reasoning_open {
++                                                        let should_close_reasoning = reasoning_open && (
++                                                            is_func_call
++                                                            || is_inline_data
++                                                            || (!clean_text.trim().is_empty() && !effective_thought)
++                                                        );
++                                                        if should_close_reasoning {
+                                                             let text_done = json!({
+                                                                 "type": "response.reasoning_summary_text.done",
+                                                                 "item_id": &active_reasoning_item_id,
+@@ -674,76 +766,69 @@ where
+                                                             reasoning_open = false;
+                                                         }
+ 
+-                                                        if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+-                                                            let clean_text = if is_thought {
+-                                                                text.replace("<think>\n", "").replace("<think>", "").replace("\n</think>", "").replace("</think>", "")
+-                                                            } else {
+-                                                                text.to_string()
+-                                                            };
+-                                                            if !clean_text.is_empty() {
+-                                                                if is_thought && message_item_emitted {
+-                                                                    // Once ordinary assistant text has started, it is the
+-                                                                    // authoritative result for this response. A late thought
+-                                                                    // delta must not be appended to it or open an overlapping
+-                                                                    // reasoning item.
+-                                                                    tracing::warn!("[Codex-Stream] Dropping late thought delta after assistant text started");
+-                                                                } else if is_thought {
+-                                                                    if !reasoning_open {
+-                                                                        reasoning_output_index = next_output_index;
+-                                                                        next_output_index += 1;
+-                                                                        active_reasoning_item_id = format!(
+-                                                                            "rs_{}_{}",
+-                                                                            &item_id_prefix[..16],
+-                                                                            reasoning_item_seq
+-                                                                        );
+-                                                                        reasoning_item_seq += 1;
+-                                                                        accumulated_thinking.clear();
+-
+-                                                                        let output_item_added = json!({"type": "response.output_item.added", "output_index": reasoning_output_index, "item": {"id": &active_reasoning_item_id, "type": "reasoning", "status": "in_progress", "summary": []}});
+-                                                                        let output_item_added = inject_seq(output_item_added, &mut sequence_number);
+-                                                                        yield Ok::<Bytes, String>(codex_sse_frame(&output_item_added));
+-
+-                                                                        let part_added = json!({"type": "response.reasoning_summary_part.added", "item_id": &active_reasoning_item_id, "output_index": reasoning_output_index, "summary_index": 0, "part": {"type": "summary_text", "text": ""}});
+-                                                                        let part_added = inject_seq(part_added, &mut sequence_number);
+-                                                                        yield Ok::<Bytes, String>(codex_sse_frame(&part_added));
+-
+-                                                                        reasoning_open = true;
+-                                                                    }
+-
+-                                                                    accumulated_thinking.push_str(&clean_text);
+-                                                                    let delta_ev = json!({
+-                                                                        "type": "response.reasoning_summary_text.delta",
+-                                                                        "item_id": &active_reasoning_item_id,
+-                                                                        "output_index": reasoning_output_index,
+-                                                                        "summary_index": 0,
+-                                                                        "delta": clean_text
+-                                                                    });
+-                                                                    let delta_ev = inject_seq(delta_ev, &mut sequence_number);
+-                                                                    yield Ok::<Bytes, String>(codex_sse_frame(&delta_ev));
+-                                                                } else {
+-                                                                    if !message_item_emitted {
+-                                                                        message_item_emitted = true;
+-                                                                        message_output_index = next_output_index;
+-                                                                        next_output_index += 1;
+-                                                                        let output_item_added = json!({"type": "response.output_item.added", "output_index": message_output_index, "item": {"id": &message_item_id, "type": "message", "role": "assistant", "phase": "commentary", "status": "in_progress", "content": []}});
+-                                                                        let output_item_added = inject_seq(output_item_added, &mut sequence_number);
+-                                                                        yield Ok::<Bytes, String>(codex_sse_frame(&output_item_added));
+-                                                                        let content_part_added = json!({"type": "response.content_part.added", "item_id": &message_item_id, "output_index": message_output_index, "content_index": 0, "part": {"type": "output_text", "text": "", "annotations": []}});
+-                                                                        let content_part_added = inject_seq(content_part_added, &mut sequence_number);
+-                                                                        yield Ok::<Bytes, String>(codex_sse_frame(&content_part_added));
+-                                                                    }
++                                                        if !clean_text.is_empty() {
++                                                            if effective_thought && message_item_emitted {
++                                                                // Once ordinary assistant text has started, it is the
++                                                                // authoritative result for this response. A late thought
++                                                                // delta must not be appended to it or open an overlapping
++                                                                // reasoning item.
++                                                                tracing::warn!("[Codex-Stream] Dropping late thought delta after assistant text started");
++                                                            } else if effective_thought {
++                                                                if !reasoning_open {
++                                                                    reasoning_output_index = next_output_index;
++                                                                    next_output_index += 1;
++                                                                    active_reasoning_item_id = format!(
++                                                                        "rs_{}_{}",
++                                                                        &item_id_prefix[..16],
++                                                                        reasoning_item_seq
++                                                                    );
++                                                                    reasoning_item_seq += 1;
++                                                                    accumulated_thinking.clear();
++
++                                                                    let output_item_added = json!({"type": "response.output_item.added", "output_index": reasoning_output_index, "item": {"id": &active_reasoning_item_id, "type": "reasoning", "status": "in_progress", "summary": []}});
++                                                                    let output_item_added = inject_seq(output_item_added, &mut sequence_number);
++                                                                    yield Ok::<Bytes, String>(codex_sse_frame(&output_item_added));
++
++                                                                    let part_added = json!({"type": "response.reasoning_summary_part.added", "item_id": &active_reasoning_item_id, "output_index": reasoning_output_index, "summary_index": 0, "part": {"type": "summary_text", "text": ""}});
++                                                                    let part_added = inject_seq(part_added, &mut sequence_number);
++                                                                    yield Ok::<Bytes, String>(codex_sse_frame(&part_added));
++
++                                                                    reasoning_open = true;
++                                                                }
+ 
+-                                                                    accumulated_text.push_str(&clean_text);
+-                                                                    let delta_ev = json!({
+-                                                                        "type": "response.output_text.delta",
+-                                                                        "item_id": &message_item_id,
+-                                                                        "output_index": message_output_index,
+-                                                                        "content_index": 0,
+-                                                                        "delta": clean_text
+-                                                                    });
+-                                                                    let delta_ev = inject_seq(delta_ev, &mut sequence_number);
+-                                                                    yield Ok::<Bytes, String>(codex_sse_frame(&delta_ev));
++                                                                accumulated_thinking.push_str(&clean_text);
++                                                                let delta_ev = json!({
++                                                                    "type": "response.reasoning_summary_text.delta",
++                                                                    "item_id": &active_reasoning_item_id,
++                                                                    "output_index": reasoning_output_index,
++                                                                    "summary_index": 0,
++                                                                    "delta": clean_text
++                                                                });
++                                                                let delta_ev = inject_seq(delta_ev, &mut sequence_number);
++                                                                yield Ok::<Bytes, String>(codex_sse_frame(&delta_ev));
++                                                            } else {
++                                                                if !message_item_emitted {
++                                                                    message_item_emitted = true;
++                                                                    message_output_index = next_output_index;
++                                                                    next_output_index += 1;
++                                                                    let output_item_added = json!({"type": "response.output_item.added", "output_index": message_output_index, "item": {"id": &message_item_id, "type": "message", "role": "assistant", "phase": "commentary", "status": "in_progress", "content": []}});
++                                                                    let output_item_added = inject_seq(output_item_added, &mut sequence_number);
++                                                                    yield Ok::<Bytes, String>(codex_sse_frame(&output_item_added));
++                                                                    let content_part_added = json!({"type": "response.content_part.added", "item_id": &message_item_id, "output_index": message_output_index, "content_index": 0, "part": {"type": "output_text", "text": "", "annotations": []}});
++                                                                    let content_part_added = inject_seq(content_part_added, &mut sequence_number);
++                                                                    yield Ok::<Bytes, String>(codex_sse_frame(&content_part_added));
+                                                                 }
++
++                                                                accumulated_text.push_str(&clean_text);
++                                                                let delta_ev = json!({
++                                                                    "type": "response.output_text.delta",
++                                                                    "item_id": &message_item_id,
++                                                                    "output_index": message_output_index,
++                                                                    "content_index": 0,
++                                                                    "delta": clean_text
++                                                                });
++                                                                let delta_ev = inject_seq(delta_ev, &mut sequence_number);
++                                                                yield Ok::<Bytes, String>(codex_sse_frame(&delta_ev));
+                                                             }
+                                                         }
+                                                         if let Some(sig) = part.get("thoughtSignature").or(part.get("thought_signature")).and_then(|s| s.as_str()) {
+@@ -976,18 +1061,46 @@ where
+             final_outputs_map.insert(reasoning_output_index, reasoning_item);
+         }
+ 
+-        // A proxy-generated diagnostic (for example an invalid apply_patch) may
+-        // only become available after the upstream stream has ended. Open the
+-        // message lazily here so it is not silently dropped behind reasoning.
++        // If no tool call was made and no message item was emitted, promote lead_buffer
++        // or accumulated action thinking to the final message item so pure Q&A answers
++        // are never hidden from the user.
++        if !has_seen_tool_calls && !message_item_emitted {
++            if !lead_buffer.is_empty() {
++                accumulated_text.push_str(&lead_buffer);
++                lead_buffer.clear();
++            }
++            if accumulated_text.is_empty() && !accumulated_action_thinking.is_empty() {
++                accumulated_text.push_str(&accumulated_action_thinking);
++            }
++        }
++        if has_seen_tool_calls {
++            lead_buffer.clear();
++        }
++
++        // A proxy-generated diagnostic (for example an invalid apply_patch) or a promoted
++        // final answer may only become available after the upstream stream has ended.
++        // Open the message lazily here so it is not silently dropped behind reasoning.
+         if !message_item_emitted && !accumulated_text.is_empty() {
+             message_item_emitted = true;
+             message_output_index = next_output_index;
+-            let output_item_added = json!({"type": "response.output_item.added", "output_index": message_output_index, "item": {"id": &message_item_id, "type": "message", "role": "assistant", "phase": "commentary", "status": "in_progress", "content": []}});
++            next_output_index += 1;
++            let message_phase = if has_seen_tool_calls { "commentary" } else { "final_answer" };
++            let output_item_added = json!({"type": "response.output_item.added", "output_index": message_output_index, "item": {"id": &message_item_id, "type": "message", "role": "assistant", "phase": message_phase, "status": "in_progress", "content": []}});
+             let output_item_added = inject_seq(output_item_added, &mut sequence_number);
+             yield Ok::<Bytes, String>(codex_sse_frame(&output_item_added));
+             let content_part_added = json!({"type": "response.content_part.added", "item_id": &message_item_id, "output_index": message_output_index, "content_index": 0, "part": {"type": "output_text", "text": "", "annotations": []}});
+             let content_part_added = inject_seq(content_part_added, &mut sequence_number);
+             yield Ok::<Bytes, String>(codex_sse_frame(&content_part_added));
++
++            let delta_ev = json!({
++                "type": "response.output_text.delta",
++                "item_id": &message_item_id,
++                "output_index": message_output_index,
++                "content_index": 0,
++                "delta": &accumulated_text
++            });
++            let delta_ev = inject_seq(delta_ev, &mut sequence_number);
++            yield Ok::<Bytes, String>(codex_sse_frame(&delta_ev));
+         }
+ 
+         if message_item_emitted {
+@@ -1409,6 +1522,9 @@ mod tests {
+ 
+     #[tokio::test]
+     async fn test_codex_final_message_is_promoted_and_persisted() {
++        let _guard = crate::proxy::config::TEST_CONFIG_LOCK.lock().unwrap();
++        crate::proxy::update_cursor_cleaner(false);
++
+         let (_, events) = collect_codex_stream(vec![
+             json!({"candidates": [{"content": {"parts": [{"text": "Checking ", "thought": true}]}}]}),
+             json!({"candidates": [{"content": {"parts": [{"text": "results.", "thought": true}]}}]}),
+@@ -1499,6 +1615,9 @@ mod tests {
+ 
+     #[tokio::test]
+     async fn test_codex_late_thought_does_not_mix_into_final_answer() {
++        let _guard = crate::proxy::config::TEST_CONFIG_LOCK.lock().unwrap();
++        crate::proxy::update_cursor_cleaner(false);
++
+         let (raw, events) = collect_codex_stream(vec![
+             json!({
+                 "candidates": [{
+@@ -1536,6 +1655,9 @@ mod tests {
+ 
+     #[tokio::test]
+     async fn test_codex_tool_round_message_stays_commentary() {
++        let _guard = crate::proxy::config::TEST_CONFIG_LOCK.lock().unwrap();
++        crate::proxy::update_cursor_cleaner(false);
++
+         let (_, events) = collect_codex_stream(vec![
+             json!({
+                 "candidates": [{
+@@ -1595,6 +1717,279 @@ mod tests {
+         assert_eq!(terminal["response"]["error"]["code"], "empty_response");
+     }
+ 
++    #[tokio::test]
++    async fn test_codex_action_planning_folded_into_thinking_when_cleaner_enabled() {
++        let _guard = crate::proxy::config::TEST_CONFIG_LOCK.lock().unwrap();
++        crate::proxy::update_cursor_cleaner(true);
++
++        let (_raw, events) = collect_codex_stream(vec![
++            json!({
++                "candidates": [{
++                    "content": {"parts": [{"text": "\n\n"}]}
++                }]
++            }),
++            json!({
++                "candidates": [{
++                    "content": {"parts": [{"text": "The"}]}
++                }]
++            }),
++            json!({
++                "candidates": [{
++                    "content": {"parts": [{"text": " patch failed with an `invalid format` error. Let's inspect the file."}]}
++                }]
++            }),
++            json!({
++                "candidates": [{
++                    "content": {"parts": [{
++                        "functionCall": {"name": "ReadFile", "args": {"file_path": "account_pool.py"}}
++                    }]}
++                }]
++            }),
++            json!({
++                "candidates": [{
++                    "finishReason": "STOP",
++                    "content": {"parts": [{"text": ""}]}
++                }]
++            }),
++        ])
++        .await;
++
++        crate::proxy::update_cursor_cleaner(false);
++
++        // Verify NO message item was emitted
++        assert!(
++            events.iter().all(|event| {
++                !(event["type"] == "response.output_item.added"
++                    && event["item"]["type"] == "message")
++            }),
++            "No message bubble should be emitted when action planning is followed by a tool call"
++        );
++
++        // Verify reasoning item was emitted with the folded text
++        let reasoning_item = events
++            .iter()
++            .find(|event| {
++                event["type"] == "response.output_item.done" && event["item"]["type"] == "reasoning"
++            })
++            .expect("reasoning item should be emitted");
++        let reasoning_text = reasoning_item["item"]["summary"][0]["text"]
++            .as_str()
++            .unwrap();
++        assert!(reasoning_text.contains("The patch failed with an `invalid format` error"));
++
++        // Verify terminal response output has reasoning and function_call, but no message
++        let terminal = events.last().expect("terminal event");
++        assert_eq!(terminal["type"], "response.completed");
++        let output = terminal["response"]["output"]
++            .as_array()
++            .expect("output array");
++        assert_eq!(output.len(), 2);
++        assert_eq!(output[0]["type"], "reasoning");
++        assert_eq!(output[1]["type"], "function_call");
++    }
++
++    #[tokio::test]
++    async fn test_codex_qa_promoted_when_cleaner_enabled_and_no_tool() {
++        let _guard = crate::proxy::config::TEST_CONFIG_LOCK.lock().unwrap();
++        crate::proxy::update_cursor_cleaner(true);
++
++        let (_, events) = collect_codex_stream(vec![
++            json!({
++                "candidates": [{
++                    "content": {"parts": [{"text": "To fix this issue, you should update the database schema."}]}
++                }]
++            }),
++            json!({
++                "candidates": [{
++                    "finishReason": "STOP",
++                    "content": {"parts": [{"text": ""}]}
++                }]
++            }),
++        ])
++        .await;
++
++        crate::proxy::update_cursor_cleaner(false);
++
++        // Verify message item is emitted as final_answer
++        let done = events
++            .iter()
++            .find(|event| {
++                event["type"] == "response.output_item.done" && event["item"]["type"] == "message"
++            })
++            .expect("message done should be emitted for QA");
++        assert_eq!(done["item"]["phase"], "final_answer");
++        assert!(done["item"]["content"][0]["text"]
++            .as_str()
++            .unwrap()
++            .contains("To fix this issue"));
++    }
++
++    #[tokio::test]
++    async fn test_codex_image33_interrupted_thought_with_chinese_filename_folded_into_thinking() {
++        let _guard = crate::proxy::config::TEST_CONFIG_LOCK.lock().unwrap();
++        crate::proxy::update_cursor_cleaner(true);
++
++        let (_raw, events) = collect_codex_stream(vec![
++            json!({
++                "candidates": [{
++                    "content": {"parts": [{"text": "minting/capturing the 292-byte turn-", "thought": true}]}
++                }]
++            }),
++            json!({
++                "candidates": [{
++                    "content": {"parts": [{"text": "state ticket) is meant to solve this. They also point to `@sub2新站.zip` which they state can prevent this issue before an account is marked.\n\nLet's locate sub2新站.zip and inspect its contents to understand what technique/logic it implements."}]}
++                }]
++            }),
++            json!({
++                "candidates": [{
++                    "content": {"parts": [{
++                        "functionCall": {"name": "Glob", "args": {"pattern": "**/*sub2*"}}
++                    }]}
++                }]
++            }),
++            json!({
++                "candidates": [{
++                    "finishReason": "STOP",
++                    "content": {"parts": [{"text": ""}]}
++                }]
++            }),
++        ])
++        .await;
++
++        crate::proxy::update_cursor_cleaner(false);
++
++        // Verify NO message item was emitted
++        assert!(events.iter().all(|event| {
++            !(event["type"] == "response.output_item.added" && event["item"]["type"] == "message")
++        }), "No message bubble should be emitted when pre-tool thought slice contains Chinese filename");
++
++        // Verify reasoning item was emitted with both thought and lead_buffer text
++        let reasoning_item = events
++            .iter()
++            .find(|event| {
++                event["type"] == "response.output_item.done" && event["item"]["type"] == "reasoning"
++            })
++            .expect("reasoning item should be emitted");
++        let reasoning_text = reasoning_item["item"]["summary"][0]["text"]
++            .as_str()
++            .unwrap();
++        assert!(reasoning_text.contains("292-byte turn-"));
++        assert!(reasoning_text.contains("@sub2新站.zip"));
++        assert!(reasoning_text.contains("Let's locate sub2新站.zip"));
++
++        // Verify terminal response output has reasoning and function_call, but no message
++        let terminal = events.last().expect("terminal event");
++        assert_eq!(terminal["type"], "response.completed");
++        let output = terminal["response"]["output"]
++            .as_array()
++            .expect("output array");
++        assert_eq!(output.len(), 2);
++        assert_eq!(output[0]["type"], "reasoning");
++        assert_eq!(output[1]["type"], "function_call");
++    }
++
++    #[tokio::test]
++    async fn test_codex_long_qa_promoted_during_stream_when_cleaner_enabled() {
++        let _guard = crate::proxy::config::TEST_CONFIG_LOCK.lock().unwrap();
++        crate::proxy::update_cursor_cleaner(true);
++
++        let long_chunk_1 =
++            "This is a detailed technical explanation of the architecture. ".repeat(7); // ~434 chars
++        let chunk_2 = " Furthermore, the streaming pipeline ensures zero latency.";
++
++        let (_, events) = collect_codex_stream(vec![
++            json!({
++                "candidates": [{
++                    "content": {"parts": [{"text": &long_chunk_1}]}
++                }]
++            }),
++            json!({
++                "candidates": [{
++                    "content": {"parts": [{"text": chunk_2}]}
++                }]
++            }),
++            json!({
++                "candidates": [{
++                    "finishReason": "STOP",
++                    "content": {"parts": [{"text": ""}]}
++                }]
++            }),
++        ])
++        .await;
++
++        crate::proxy::update_cursor_cleaner(false);
++
++        // Verify message item is emitted and completed as final_answer
++        let done = events
++            .iter()
++            .find(|event| {
++                event["type"] == "response.output_item.done" && event["item"]["type"] == "message"
++            })
++            .expect("message done should be emitted for long QA");
++        assert_eq!(done["item"]["phase"], "final_answer");
++        let content_text = done["item"]["content"][0]["text"].as_str().unwrap();
++        assert!(content_text.contains("detailed technical explanation"));
++        assert!(content_text.contains("streaming pipeline"));
++    }
++
++    #[tokio::test]
++    async fn test_codex_image34_code_patch_draft_before_tool_call_folded_into_thinking() {
++        let _guard = crate::proxy::config::TEST_CONFIG_LOCK.lock().unwrap();
++        crate::proxy::update_cursor_cleaner(true);
++
++        let draft_patch = "• monkeypatch.setattr(account_pool, \"list_account_names\", lambda: [\"acc_proxy_test\", \"acc_backup\"])\n• monkeypatch.setattr(mitm_proxy, \"time\", type(\"MockTime\", (), {\"sleep\": lambda s: None}))\n•\n• forward_headers: dict[str, str] = {\"authorization\": \"Bearer token\"}\n• retry_decision = mitm_proxy._should_retry_upstream(\n• status=503,\n• body=b'{\"error\":{\"message\":\"The model is at capacity\"}}',\n• attempt=0,\n• host=\"api.openai.com\",\n• fwd=forward_headers,\n• failed_account=\"acc_proxy_test\",\n• req_body=b'{\"model\":\"gpt-5.6-luna\"}',\n• )\n• assert retry_decision is True\n• assert turn_state_ticket.is_rescue_injection_armed(\"acc_proxy_test\", \"gpt-5.6-luna\") is True *** End Patch}}";
++
++        let (_, events) = collect_codex_stream(vec![
++            json!({ "candidates": [{ "content": {"parts": [{"text": draft_patch}]} }] }),
++            json!({ "candidates": [{ "content": {"parts": [{"functionCall": {"name": "Run", "args": {"command": "cd /weifeng/.codex-mitm && pytest test_*.py cd"}}}] }}] }),
++            json!({ "candidates": [{ "finishReason": "STOP", "content": {"parts": [{"text": ""}]} }] }),
++        ]).await;
++
++        crate::proxy::update_cursor_cleaner(false);
++
++        let has_message = events
++            .iter()
++            .any(|e| e["type"] == "response.output_item.added" && e["item"]["type"] == "message");
++        assert!(
++            !has_message,
++            "Image #34 draft patch before tool call must NEVER emit a message item!"
++        );
++
++        let reasoning_deltas: Vec<&str> = events
++            .iter()
++            .filter(|e| e["type"] == "response.reasoning_summary_text.delta")
++            .filter_map(|e| e["delta"].as_str())
++            .collect();
++        assert!(
++            !reasoning_deltas.is_empty(),
++            "Draft patch must be folded into reasoning summary text delta"
++        );
++        assert!(reasoning_deltas.join("").contains("monkeypatch.setattr"));
++    }
++
++    #[tokio::test]
++    async fn test_codex_image36_default_api_leakage_stripped_from_output() {
++        let _guard = crate::proxy::config::TEST_CONFIG_LOCK.lock().unwrap();
++
++        let raw_chunk = "The hypothesis is that a single request to the responses endpoint will initiate the 5-hour rolling window.call:default_api:Shell{description:Check auth file of 1wkpzhugbo6t1t_dr.com}";
++
++        let (_, events) = collect_codex_stream(vec![
++            json!({ "candidates": [{ "content": {"parts": [{"text": raw_chunk}]} }] }),
++            json!({ "candidates": [{ "finishReason": "STOP", "content": {"parts": [{"text": ""}]} }] }),
++        ]).await;
++
++        let output_deltas: Vec<&str> = events
++            .iter()
++            .filter(|e| e["type"] == "response.output_text.delta")
++            .filter_map(|e| e["delta"].as_str())
++            .collect();
++
++        let joined = output_deltas.join("");
++        assert!(joined.contains("will initiate the 5-hour rolling window."));
++        assert!(!joined.contains("call:default_api"));
++        assert!(!joined.contains("1wkpzhugbo6t1t_dr.com"));
++    }
++
+     #[tokio::test]
+     async fn test_openai_streaming_usage_only_at_end() {
+         // Chunk 1: Partial content, no usage
+diff --git a/src-tauri/src/proxy/mod.rs b/src-tauri/src/proxy/mod.rs
+index 7f92f387..e7c6fbba 100644
+--- a/src-tauri/src/proxy/mod.rs
++++ b/src-tauri/src/proxy/mod.rs
+@@ -36,6 +36,8 @@ pub mod video; // 视频处理模块
+ pub mod zai_vision_mcp; // Built-in Vision MCP server state
+ pub mod zai_vision_tools; // Built-in Vision MCP tools (z.ai vision API) // 调试日志
+ 
++pub use config::is_cursor_cleaner_enabled;
++pub use config::update_cursor_cleaner;
+ pub use config::update_global_system_prompt_config;
+ pub use config::update_image_thinking_mode;
+ pub use config::update_thinking_budget_config;
+diff --git a/src-tauri/src/proxy/server.rs b/src-tauri/src/proxy/server.rs
+index 322a2bb0..947e3288 100644
+--- a/src-tauri/src/proxy/server.rs
++++ b/src-tauri/src/proxy/server.rs
+@@ -435,6 +435,11 @@ impl AxumServer {
+         tracing::debug!("only_raw_quota_models 已更新: {}", only_raw);
+     }
+ 
++    pub async fn update_cursor_cleaner(&self, enabled: bool) {
++        crate::proxy::update_cursor_cleaner(enabled);
++        tracing::debug!("cursor_cleaner 已更新: {}", enabled);
++    }
++
+     pub async fn update_mapping(&self, config: &crate::proxy::config::ProxyConfig) {
+         {
+             let mut m = self.custom_mapping.write().await;
+diff --git a/src-tauri/tauri.conf.json b/src-tauri/tauri.conf.json
+index 72d10586..764558a7 100644
+--- a/src-tauri/tauri.conf.json
++++ b/src-tauri/tauri.conf.json
+@@ -55,7 +55,7 @@
+     "updater": {
+       "active": true,
+       "endpoints": [
+-        "https://github.com/lbjlaq/Antigravity-Manager/releases/latest/download/updater.json"
++        "https://github.com/weifeng0222/Antigravity-Manager/releases/latest/download/updater.json"
+       ],
+       "dialog": true,
+       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJFRjVDRjdCREE1Rjg2NkYKUldSdmhsL2FlOC8xdnJuTzBtaTRhZkk1VWJ1cW5QWGU3ZWEwU20yZHRlZStxMnRWcUIzc3FwT2IK"
+diff --git a/src/App.css b/src/App.css
+index dbdcf048..0009c348 100644
+--- a/src/App.css
++++ b/src/App.css
+@@ -2,19 +2,248 @@
+ @tailwind components;
+ @tailwind utilities;
+ 
+-/* Override dark background utilities so enabled switches remain distinct. */
+-.dark input.toggle[type="checkbox"]:checked {
+-  background-color: var(--app-toggle-active, #3b82f6);
+-  border-color: var(--app-toggle-active, #3b82f6);
++/* ==========================================================================
++   DaisyUI 5 + Tailwind 3 兼容层补丁 (解决 [object Object] 语法错误导致的样式丢失)
++   ========================================================================== */
++
++/* 1. Modal 弹窗修复 (解决 .modal.modal-open 缺失导致的不可见与点击穿透问题) */
++.modal {
++  position: fixed;
++  inset: 0;
++  margin: 0;
++  display: grid;
++  height: 100%;
++  max-height: none;
++  width: 100%;
++  max-width: none;
++  align-items: center;
++  justify-items: center;
++  background-color: rgba(0, 0, 0, 0.45);
++  padding: 0;
++  color: inherit;
++  transition: opacity 0.2s ease-out, visibility 0.2s ease-out;
++  overflow: clip;
++  overscroll-behavior: contain;
++  z-index: 1000;
++}
++
++.modal.modal-open,
++.modal[open],
++.modal:target {
++  pointer-events: auto !important;
++  visibility: visible !important;
++  opacity: 1 !important;
++}
++
++.modal:not(.modal-open):not([open]):not(:target) {
++  pointer-events: none !important;
++  visibility: hidden !important;
++  opacity: 0 !important;
++}
++
++.modal-box {
++  max-height: calc(100vh - 5em);
++  grid-column-start: 1;
++  grid-row-start: 1;
++  width: 91.666667%;
++  max-width: 32rem;
++  border-radius: 1rem;
++  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35);
++  overflow-y: auto;
++  overscroll-behavior: contain;
++  z-index: 10;
++  background-color: #ffffff;
++  color: #1f2937;
++  opacity: 1 !important;
++  visibility: visible !important;
+ }
+ 
+-.dark input.toggle[type="checkbox"]:checked::before {
+-  background-color: #ffffff;
++.dark .modal-box {
++  background-color: #1e293b;
++  color: #f8fafc;
+ }
+ 
+-.dark input.toggle.toggle-success { --app-toggle-active: #16a34a; }
+-.dark input.toggle.toggle-warning { --app-toggle-active: #d97706; }
+-.dark input.toggle.toggle-error { --app-toggle-active: #dc2626; }
++/* 解决 .modal-box 因 DaisyUI 5 [object Object] 语法丢失导致的透明不可见与缩放问题 */
++.modal.modal-open .modal-box,
++.modal[open] .modal-box,
++.modal:target .modal-box {
++  opacity: 1 !important;
++  visibility: visible !important;
++  scale: 1 !important;
++  transform: none !important;
++  pointer-events: auto !important;
++}
++
++.modal-backdrop {
++  position: fixed;
++  inset: 0;
++  z-index: 0;
++  width: 100%;
++  height: 100%;
++  background-color: rgba(0, 0, 0, 0.45);
++  backdrop-filter: blur(4px);
++  -webkit-backdrop-filter: blur(4px);
++}
++
++/* 2. Toggle 开关组件深度修复 (解决错位、缺失滑块与 DaisyUI 5 Grid 干扰) */
++.toggle,
++input.toggle[type="checkbox"] {
++  appearance: none !important;
++  -webkit-appearance: none !important;
++  position: relative !important;
++  display: inline-block !important;
++  box-sizing: border-box !important;
++  padding: 0 !important;
++  margin: 0 !important;
++  vertical-align: middle !important;
++  border-radius: 9999px !important;
++  cursor: pointer !important;
++  background-color: #cbd5e1;
++  border: 1px solid #94a3b8;
++  transition: background-color 0.2s ease, border-color 0.2s ease !important;
++  /* 彻底消除 DaisyUI 5 异常的 Grid 与 place-content 居中偏移 */
++  grid-template-columns: none !important;
++  place-content: unset !important;
++  justify-content: unset !important;
++  align-content: unset !important;
++  flex-shrink: 0 !important;
++}
++
++.dark .toggle,
++.dark input.toggle[type="checkbox"] {
++  background-color: #334155;
++  border-color: #475569;
++}
++
++/* 激活状态背景色 */
++.toggle:checked,
++input.toggle[type="checkbox"]:checked {
++  background-color: var(--app-toggle-active, #3b82f6) !important;
++  border-color: var(--app-toggle-active, #3b82f6) !important;
++}
++
++.toggle.toggle-primary:checked,
++input.toggle.toggle-primary:checked { --app-toggle-active: #3b82f6; }
++
++.toggle.toggle-success:checked,
++input.toggle.toggle-success:checked { --app-toggle-active: #16a34a; }
++
++.toggle.toggle-warning:checked,
++input.toggle.toggle-warning:checked { --app-toggle-active: #d97706; }
++
++.toggle.toggle-error:checked,
++input.toggle.toggle-error:checked   { --app-toggle-active: #dc2626; }
++
++/* 禁用与焦点样式 */
++.toggle:disabled,
++input.toggle[type="checkbox"]:disabled {
++  cursor: not-allowed !important;
++  opacity: 0.45 !important;
++}
++
++.toggle:focus-visible,
++input.toggle[type="checkbox"]:focus-visible {
++  outline: 2px solid var(--app-toggle-active, #3b82f6) !important;
++  outline-offset: 2px !important;
++}
++
++/* 滑块 (Thumb) 基础与绝对定位：彻底杜绝左右错位与溢出，精准 1px 对称留白 */
++.toggle::before,
++input.toggle[type="checkbox"]::before {
++  content: "" !important;
++  position: absolute !important;
++  top: 50% !important;
++  left: 1px !important; /* 精准 1px 边距 */
++  border-radius: 50% !important;
++  background-color: #ffffff !important;
++  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.25) !important;
++  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
++  pointer-events: none !important;
++  box-sizing: border-box !important;
++  opacity: 1 !important;
++  visibility: visible !important;
++  display: block !important;
++}
++
++/* 尺寸适配 1: 默认 (Default, 48px * 24px, thumb 20px) */
++.toggle,
++input.toggle[type="checkbox"] {
++  width: 3rem !important;
++  height: 1.5rem !important;
++}
++
++.toggle::before,
++input.toggle[type="checkbox"]::before {
++  width: 1.25rem !important;
++  height: 1.25rem !important;
++  left: 1px !important;
++  transform: translateY(-50%) !important;
++}
++
++.toggle:checked::before,
++input.toggle[type="checkbox"]:checked::before {
++  transform: translate(calc(3rem - 1.25rem - 2px), -50%) !important;
++}
++
++/* 尺寸适配 2: 小尺寸 (toggle-sm, 36px * 20px, thumb 16px) */
++.toggle.toggle-sm,
++input.toggle.toggle-sm[type="checkbox"] {
++  width: 2.25rem !important;
++  height: 1.25rem !important;
++}
++
++.toggle.toggle-sm::before,
++input.toggle.toggle-sm[type="checkbox"]::before {
++  width: 1rem !important;
++  height: 1rem !important;
++  left: 1px !important;
++  transform: translateY(-50%) !important;
++}
++
++.toggle.toggle-sm:checked::before,
++input.toggle.toggle-sm[type="checkbox"]:checked::before {
++  transform: translate(calc(2.25rem - 1rem - 2px), -50%) !important;
++}
++
++/* 尺寸适配 3: 超小尺寸 (toggle-xs, 28px * 16px, thumb 12px) */
++.toggle.toggle-xs,
++input.toggle.toggle-xs[type="checkbox"] {
++  width: 1.75rem !important;
++  height: 1rem !important;
++}
++
++.toggle.toggle-xs::before,
++input.toggle.toggle-xs[type="checkbox"]::before {
++  width: 0.75rem !important;
++  height: 0.75rem !important;
++  left: 1px !important;
++  transform: translateY(-50%) !important;
++}
++
++.toggle.toggle-xs:checked::before,
++input.toggle.toggle-xs[type="checkbox"]:checked::before {
++  transform: translate(calc(1.75rem - 0.75rem - 2px), -50%) !important;
++}
++
++/* 尺寸适配 4: 大尺寸 (toggle-lg, 56px * 32px, thumb 26px) */
++.toggle.toggle-lg,
++input.toggle.toggle-lg[type="checkbox"] {
++  width: 3.5rem !important;
++  height: 2rem !important;
++}
++
++.toggle.toggle-lg::before,
++input.toggle.toggle-lg[type="checkbox"]::before {
++  width: 1.625rem !important;
++  height: 1.625rem !important;
++  left: 1px !important;
++  transform: translateY(-50%) !important;
++}
++
++.toggle.toggle-lg:checked::before,
++input.toggle.toggle-lg[type="checkbox"]:checked::before {
++  transform: translate(calc(3.5rem - 1.625rem - 2px), -50%) !important;
++}
+ 
+ /* 禁止过度滚动和橡皮筋效果 */
+ html,
+diff --git a/src/components/UpdateNotification.tsx b/src/components/UpdateNotification.tsx
+index 9732c6f2..44f5e312 100644
+--- a/src/components/UpdateNotification.tsx
++++ b/src/components/UpdateNotification.tsx
+@@ -109,6 +109,9 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ onClose
+       console.error('Auto update failed:', errorMsg);
+       setUpdateState('error');
+       showToast(`${t('update_notification.toast.failed')}: ${errorMsg}`, 'error');
++      if (!isVisible) {
++        onClose();
++      }
+     }
+   };
+ 
+@@ -126,7 +129,7 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ onClose
+     setTimeout(onClose, 400);
+   };
+ 
+-  if (updateState === 'none') {
++  if (updateState === 'none' || (!isVisible && !isClosing)) {
+     return null;
+   }
+ 
+@@ -135,7 +138,7 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ onClose
+       className={`
+         fixed top-6 right-6 z-[100]
+         transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]
+-        ${isVisible && !isClosing ? 'translate-y-0 opacity-100 scale-100' : '-translate-y-4 opacity-0 scale-95'}
++        ${isVisible && !isClosing ? 'translate-y-0 opacity-100 scale-100 pointer-events-auto' : '-translate-y-4 opacity-0 scale-95 pointer-events-none'}
+       `}
+     >
+       <div className="
+diff --git a/src/components/accounts/AccountDetailsDialog.tsx b/src/components/accounts/AccountDetailsDialog.tsx
+index 516a61e7..371b5806 100644
+--- a/src/components/accounts/AccountDetailsDialog.tsx
++++ b/src/components/accounts/AccountDetailsDialog.tsx
+@@ -17,11 +17,11 @@ export default function AccountDetailsDialog({ account, onClose }: AccountDetail
+     if (!account) return null;
+ 
+     return createPortal(
+-        <div className="modal modal-open z-[100]">
++        <div className="modal modal-open z-[100] fixed inset-0 flex items-center justify-center p-4">
+             {/* Draggable Top Region */}
+             <div data-tauri-drag-region className="fixed top-0 left-0 right-0 h-8 z-[110]" />
+ 
+-            <div className="modal-box relative max-w-3xl bg-white dark:bg-base-100 shadow-2xl rounded-2xl p-0 overflow-hidden">
++            <div className="modal-box relative z-10 max-w-3xl w-full bg-white dark:bg-base-100 shadow-2xl rounded-2xl p-0 overflow-hidden">
+                 {/* Header */}
+                 <div className="px-6 py-5 border-b border-gray-100 dark:border-base-200 bg-gray-50/50 dark:bg-base-200/50 flex justify-between items-center">
+                     <div className="flex items-center gap-3">
+@@ -224,7 +224,7 @@ export default function AccountDetailsDialog({ account, onClose }: AccountDetail
+                     )}
+                 </div>
+             </div>
+-            <div className="modal-backdrop bg-black/40 backdrop-blur-sm" onClick={onClose}></div>
++            <div className="modal-backdrop fixed inset-0 z-0 bg-black/45 backdrop-blur-sm" onClick={onClose}></div>
+         </div>,
+         document.body
+     );
+diff --git a/src/components/accounts/DeviceFingerprintDialog.tsx b/src/components/accounts/DeviceFingerprintDialog.tsx
+index 7ca1cea8..4404943f 100644
+--- a/src/components/accounts/DeviceFingerprintDialog.tsx
++++ b/src/components/accounts/DeviceFingerprintDialog.tsx
+@@ -153,9 +153,9 @@ export default function DeviceFingerprintDialog({ account, onClose }: DeviceFing
+     if (!account) return null;
+ 
+     return createPortal(
+-        <div className="modal modal-open z-[120]">
++        <div className="modal modal-open z-[120] fixed inset-0 flex items-center justify-center p-4">
+             <div data-tauri-drag-region className="fixed top-0 left-0 right-0 h-8 z-[130]" />
+-            <div className="modal-box relative max-w-3xl bg-white dark:bg-base-100 shadow-2xl rounded-2xl p-0 overflow-hidden">
++            <div className="modal-box relative z-10 max-w-3xl w-full bg-white dark:bg-base-100 shadow-2xl rounded-2xl p-0 overflow-hidden">
+                 <div className="px-6 py-5 border-b border-gray-100 dark:border-base-200 bg-gray-50/50 dark:bg-base-200/50 flex justify-between items-center">
+                     <div className="flex items-center gap-3">
+                         <h3 className="font-bold text-lg text-gray-900 dark:text-base-content">{t('accounts.device_fingerprint_dialog.title')}</h3>
+@@ -239,7 +239,7 @@ export default function DeviceFingerprintDialog({ account, onClose }: DeviceFing
+                     </div>
+                 </div>
+             </div>
+-            <div className="modal-backdrop bg-black/40 backdrop-blur-sm" onClick={onClose}></div>
++            <div className="modal-backdrop fixed inset-0 z-0 bg-black/45 backdrop-blur-sm" onClick={onClose}></div>
+             {confirmProfile && confirmType && (
+                 <ConfirmDialog
+                     profile={confirmProfile}
+@@ -304,8 +304,8 @@ function ConfirmDialog({ profile, type, onConfirm, onCancel, loading }: { profil
+             ? t('accounts.device_fingerprint_dialog.confirm_generate_desc')
+             : t('accounts.device_fingerprint_dialog.confirm_restore_desc');
+     return createPortal(
+-        <div className="modal modal-open z-[140]">
+-            <div className="modal-box max-w-sm bg-white dark:bg-base-100 rounded-2xl shadow-2xl p-6 text-center">
++        <div className="modal modal-open z-[140] fixed inset-0 flex items-center justify-center p-4">
++            <div className="modal-box relative z-10 max-w-sm w-full bg-white dark:bg-base-100 rounded-2xl shadow-2xl p-6 text-center">
+                 <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-blue-50 text-blue-500 dark:bg-blue-500/10 dark:text-blue-300">
+                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                         <path d="M12 9v4" strokeLinecap="round" strokeLinejoin="round" />
+@@ -326,7 +326,7 @@ function ConfirmDialog({ profile, type, onConfirm, onCancel, loading }: { profil
+                     <button className="btn btn-sm btn-primary min-w-[100px]" onClick={onConfirm} disabled={!!loading}>{loading ? t('accounts.device_fingerprint_dialog.processing') : t('accounts.device_fingerprint_dialog.confirm')}</button>
+                 </div>
+             </div>
+-            <div className="modal-backdrop bg-black/30" onClick={onCancel}></div>
++            <div className="modal-backdrop fixed inset-0 z-0 bg-black/45 backdrop-blur-sm" onClick={onCancel}></div>
+         </div>,
+         document.body
+     );
+diff --git a/src/components/common/ModalDialog.tsx b/src/components/common/ModalDialog.tsx
+index d0648182..7df0951f 100644
+--- a/src/components/common/ModalDialog.tsx
++++ b/src/components/common/ModalDialog.tsx
+@@ -63,11 +63,11 @@ export default function ModalDialog({
+     const showCancel = type === 'confirm' && onCancel;
+ 
+     return createPortal(
+-        <div className="modal modal-open z-[100]">
++        <div className="modal modal-open z-[100] fixed inset-0 flex items-center justify-center p-4">
+             {/* Draggable Top Region */}
+             <div data-tauri-drag-region className="fixed top-0 left-0 right-0 h-8 z-[110]" />
+ 
+-            <div className="modal-box relative max-w-sm bg-white dark:bg-base-100 shadow-2xl rounded-2xl p-0 overflow-hidden transform transition-all animate-in fade-in zoom-in-95 duration-200">
++            <div className="modal-box relative z-10 max-w-sm w-full bg-white dark:bg-base-100 shadow-2xl rounded-2xl p-0 overflow-hidden transform transition-all animate-in fade-in zoom-in-95 duration-200">
+                 <div className="flex flex-col items-center text-center p-6 pt-8">
+                     <div className={`w-14 h-14 rounded-full flex items-center justify-center mb-4 shadow-sm ${getIconBg()}`}>
+                         {getIcon()}
+@@ -107,7 +107,7 @@ export default function ModalDialog({
+                     </div>
+                 </div>
+             </div>
+-            <div className="modal-backdrop bg-black/40 backdrop-blur-sm fixed inset-0 z-[-1]" onClick={showCancel ? onCancel : undefined}></div>
++            <div className="modal-backdrop bg-black/45 backdrop-blur-sm fixed inset-0 z-0" onClick={showCancel ? onCancel : undefined}></div>
+         </div>,
+         document.body
+     );
+diff --git a/src/components/common/ToastContainer.tsx b/src/components/common/ToastContainer.tsx
+index 5320707d..4a75d85f 100644
+--- a/src/components/common/ToastContainer.tsx
++++ b/src/components/common/ToastContainer.tsx
+@@ -39,17 +39,20 @@ const ToastContainer = () => {
+         };
+     }, [addToast]);
+ 
++    if (toasts.length === 0) {
++        return null;
++    }
++
+     return createPortal(
+         <div className="fixed top-24 right-8 z-[200] flex flex-col gap-3 pointer-events-none">
+-            <div className="flex flex-col gap-3 pointer-events-auto">
+-                {toasts.map(toast => (
++            {toasts.map(toast => (
++                <div key={toast.id} className="pointer-events-auto">
+                     <Toast
+-                        key={toast.id}
+                         {...toast}
+                         onClose={removeToast}
+                     />
+-                ))}
+-            </div>
++                </div>
++            ))}
+         </div>,
+         document.body
+     );
+diff --git a/src/components/proxy/CliSyncCard.tsx b/src/components/proxy/CliSyncCard.tsx
+index 8fd00772..0365cbc9 100644
+--- a/src/components/proxy/CliSyncCard.tsx
++++ b/src/components/proxy/CliSyncCard.tsx
+@@ -1,4 +1,5 @@
+ import { useState, useEffect, useCallback } from 'react';
++import { createPortal } from 'react-dom';
+ import { useTranslation } from 'react-i18next';
+ import {
+     Terminal,
+@@ -596,7 +597,7 @@ export const CliSyncCard = ({ proxyUrl, apiKey, className }: CliSyncCardProps) =
+             </div>
+ 
+             {/* Config Viewer Modal */}
+-            {viewingConfig && (
++            {viewingConfig && createPortal(
+                 <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+                     <div className="bg-white dark:bg-base-100 rounded-2xl shadow-2xl border border-gray-200 dark:border-base-300 w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+                         <div className="px-6 py-4 border-b border-gray-100 dark:border-base-200 flex items-center justify-between bg-gray-50/50 dark:bg-base-200/50">
+@@ -650,7 +651,8 @@ export const CliSyncCard = ({ proxyUrl, apiKey, className }: CliSyncCardProps) =
+                             </div>
+                         </div>
+                     </div>
+-                </div>
++                </div>,
++                document.body
+             )}
+             {/* 恢复默认/备份确认弹窗 */}
+             <ModalDialog
+diff --git a/src/components/proxy/DroidSyncModal.tsx b/src/components/proxy/DroidSyncModal.tsx
+index 3247f8cb..770b65c2 100644
+--- a/src/components/proxy/DroidSyncModal.tsx
++++ b/src/components/proxy/DroidSyncModal.tsx
+@@ -1,4 +1,5 @@
+ import { useState, useCallback } from 'react';
++import { createPortal } from 'react-dom';
+ import { useTranslation } from 'react-i18next';
+ import { RefreshCw, X, Bot } from 'lucide-react';
+ import {
+@@ -218,7 +219,7 @@ export function DroidSyncModal({ apiKey, getFormattedProxyUrl, onClose, onSyncDo
+     const existingCount = previewModels.filter(m => !m.isAg).length;
+     const agCount = previewModels.filter(m => m.isAg).length;
+ 
+-    return (
++    return createPortal(
+         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+             <div className="bg-white dark:bg-base-100 rounded-2xl shadow-2xl border border-gray-200 dark:border-base-300 w-full max-w-2xl max-h-[85vh] overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col">
+                 {/* Header */}
+@@ -344,6 +345,7 @@ export function DroidSyncModal({ apiKey, getFormattedProxyUrl, onClose, onSyncDo
+                     </button>
+                 </div>
+             </div>
+-        </div>
++        </div>,
++        document.body
+     );
+ }
+diff --git a/src/components/proxy/OpenCodeSyncModal.tsx b/src/components/proxy/OpenCodeSyncModal.tsx
+index f5b1ccf1..1b81f6ce 100644
+--- a/src/components/proxy/OpenCodeSyncModal.tsx
++++ b/src/components/proxy/OpenCodeSyncModal.tsx
+@@ -1,4 +1,5 @@
+ import { useState, useCallback, useEffect } from 'react';
++import { createPortal } from 'react-dom';
+ import { useTranslation } from 'react-i18next';
+ import { RefreshCw, X, CodeXml } from 'lucide-react';
+ import {
+@@ -177,7 +178,7 @@ export function OpenCodeSyncModal({ proxyUrl, apiKey, getFormattedProxyUrl, sync
+ 
+     const groups = [...new Set(antigravityModels.map(m => m.group))];
+ 
+-    return (
++    return createPortal(
+         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+             <div className="bg-white dark:bg-base-100 rounded-2xl shadow-2xl border border-gray-200 dark:border-base-300 w-full max-w-2xl max-h-[85vh] overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col">
+                 {/* Header */}
+@@ -335,6 +336,7 @@ export function OpenCodeSyncModal({ proxyUrl, apiKey, getFormattedProxyUrl, sync
+                     </button>
+                 </div>
+             </div>
+-        </div>
++        </div>,
++        document.body
+     );
+ }
+diff --git a/src/components/settings/ThinkingBudget.tsx b/src/components/settings/ThinkingBudget.tsx
+index b433ee7e..de004bc5 100644
+--- a/src/components/settings/ThinkingBudget.tsx
++++ b/src/components/settings/ThinkingBudget.tsx
+@@ -1,4 +1,5 @@
+ import { useState, useRef, useEffect } from "react";
++import { createPortal } from "react-dom";
+ import { useTranslation, Trans } from "react-i18next";
+ import { Save, Check, ChevronDown, Layers, HelpCircle, HardDrive, Trash2, AlertTriangle } from "lucide-react";
+ import { request } from "../../utils/request";
+@@ -428,8 +429,11 @@ export default function ThinkingBudget({
+ 
+             {/* 0. 服务端思考块回填 (Server-side Thought & Signature Restoration) */}
+             {onThinkingStoreChange && (
+-                <div className="p-3.5 bg-purple-50/70 dark:bg-purple-900/20 border border-purple-200/80 dark:border-purple-800/40 rounded-xl flex items-center justify-between gap-4 shadow-2xs">
+-                    <div className="space-y-0.5">
++                <div
++                    className="p-3.5 bg-purple-50/70 dark:bg-purple-900/20 border border-purple-200/80 dark:border-purple-800/40 rounded-xl flex items-center justify-between gap-4 shadow-2xs cursor-pointer hover:bg-purple-100/70 dark:hover:bg-purple-900/30 transition-colors"
++                    onClick={() => onThinkingStoreChange(!thinkingStoreEnabled)}
++                >
++                    <div className="space-y-0.5 select-none">
+                         <div className="flex items-center gap-2">
+                             <span className="text-xs font-bold text-gray-900 dark:text-white">
+                                 {t("proxy.config.thinking_budget.store_enabled", { defaultValue: "服务端思考块与签名回填" })}
+@@ -446,8 +450,9 @@ export default function ThinkingBudget({
+                     </div>
+                     <input
+                         type="checkbox"
+-                        className="toggle toggle-sm toggle-primary shrink-0"
++                        className="toggle toggle-sm bg-gray-200 dark:bg-base-300 border-gray-300 dark:border-base-300 checked:bg-blue-600 checked:border-blue-600 cursor-pointer shrink-0"
+                         checked={thinkingStoreEnabled}
++                        onClick={(e) => e.stopPropagation()}
+                         onChange={(e) => onThinkingStoreChange(e.target.checked)}
+                     />
+                 </div>
+@@ -1244,9 +1249,9 @@ export default function ThinkingBudget({
+             )}
+ 
+             {/* 清空思考块二次确认弹窗 */}
+-            {showClearThinkingConfirm && (
+-                <div className="modal modal-open">
+-                    <div className="modal-box max-w-md bg-white dark:bg-base-100 border border-base-300 shadow-2xl p-5">
++            {showClearThinkingConfirm && createPortal(
++                <div className="modal modal-open fixed inset-0 z-[100] flex items-center justify-center p-4">
++                    <div className="modal-box relative z-10 max-w-md w-full bg-white dark:bg-base-100 border border-base-300 shadow-2xl p-5 rounded-2xl">
+                         <div className="flex items-start gap-3">
+                             <div className="p-2 rounded-full bg-error/10 text-error shrink-0 mt-0.5">
+                                 <AlertTriangle size={20} />
+@@ -1299,10 +1304,11 @@ export default function ThinkingBudget({
+                         </div>
+                     </div>
+                     <div
+-                        className="modal-backdrop bg-black/40"
++                        className="modal-backdrop fixed inset-0 z-0 bg-black/45 backdrop-blur-sm"
+                         onClick={() => !isClearingThinking && setShowClearThinkingConfirm(false)}
+                     />
+-                </div>
++                </div>,
++                document.body
+             )}
+         </div>
+     );
+diff --git a/src/locales/en.json b/src/locales/en.json
+index 00aa5c31..b6e9babf 100644
+--- a/src/locales/en.json
++++ b/src/locales/en.json
+@@ -910,6 +910,10 @@
+       "experimental": {
+         "title": "Experimental Settings",
+         "title_tooltip": "Exploratory features that may be adjusted or removed in future versions.",
++        "cursor_cleaner_label": "Cursor Clean Stream & Dot Filter",
++        "cursor_cleaner_desc": "Specifically designed for Cursor, intercepts and filters out dot cascades, action planning narration (folded into thinking), and empty heartbeats in SSE streams.",
++        "cursor_cleaner_started": "Cursor cleaner enabled",
++        "cursor_cleaner_stopped": "Cursor cleaner disabled",
+         "enable_usage_scaling": "Enable Usage Scaling",
+         "enable_usage_scaling_tooltip": "For all compatible protocols (Claude/OpenAI/Gemini). Enables aggressive scaling and multi-phase context compression when total input exceeds 30k tokens. Note: Reported usage will not reflect actual billing after enabling.",
+         "compression_level_label": "Context Compression Level",
+@@ -1026,6 +1030,8 @@
+         "claude_default_hint": "Official default mode enabled: adheres to standard Anthropic specifications without custom limits.",
+         "store_enabled": "Server-side Thought & Signature Restoration",
+         "store_enabled_desc": "Automatically captures and persists reasoning blocks and encrypted signatures. When client agents (e.g. Cline, Roo, Claude Code) omit thought content in multi-turn chats, the gateway restores them to prevent upstream 400 errors or context loss.",
++        "store_enabled_started": "Server-side Thought & Signature Restoration started",
++        "store_enabled_stopped": "Server-side Thought & Signature Restoration stopped",
+         "default_on_tag": "Default On",
+         "claude_thinking_note": "💡 Claude Model Note: Anthropic official models only differentiate between `-thinking` (e.g. claude-3-7-sonnet-thinking) and standard models. This custom budget specifically manages quotas for thinking models; calling standard models will not trigger upstream reasoning.",
+         "max_memory_turns_label": "Max Memory Thinking Turns per Session",
+diff --git a/src/locales/zh-TW.json b/src/locales/zh-TW.json
+index 846d9cbc..c857095f 100644
+--- a/src/locales/zh-TW.json
++++ b/src/locales/zh-TW.json
+@@ -894,6 +894,10 @@
+       "experimental": {
+         "title": "實驗性設定 (Experimental)",
+         "title_tooltip": "探索性功能，可能在未來版本中調整或移除。",
++        "cursor_cleaner_label": "Cursor 純淨流與點號清洗",
++        "cursor_cleaner_desc": "專為 Cursor 設計，即時攔截過濾 SSE 流中的連續點號瀑布、行動過渡句（自動折疊進思考抽屜）與空心跳",
++        "cursor_cleaner_started": "Cursor 純淨流已啟動",
++        "cursor_cleaner_stopped": "Cursor 純淨流已停止",
+         "enable_usage_scaling": "啟用用量縮放",
+         "enable_usage_scaling_tooltip": "支援所有相容協定 (Claude/OpenAI/Gemini)。當總輸入超過 30k Token 時開啟激進縮放與分階段上下文去噪提純，防止在大上下文下頻繁觸發用戶端壓縮。注意：開啟後用戶端顯示的用量不再代表實際計費點數。",
+         "compression_level_label": "智能上下文壓縮等級",
+@@ -1003,6 +1007,8 @@
+         "claude_default_hint": "已啟用官方預設模式：完全按官方協議規範透傳，不注入額外自訂預算限制。",
+         "store_enabled": "伺服端思考塊與簽名回填",
+         "store_enabled_desc": "自動攔截並持久化思考過程與加密簽名；當商業 Agent（如 Cline, Roo, Claude Code 等）多輪對話未帶回思考時由伺服端自動補齊，杜絕上游 400 報錯或上下文遺失。",
++        "store_enabled_started": "伺服端思考塊與簽名回填已啟動",
++        "store_enabled_stopped": "伺服端思考塊與簽名回填已停止",
+         "default_on_tag": "預設開啟",
+         "claude_thinking_note": "💡 Claude 模型說明：Anthropic 官方模型列表僅區分帶 `-thinking`（如 claude-3-7-sonnet-thinking）與普通模型。本自訂預算專門控制帶 thinking 模型的思考配額；若調用普通非 thinking 模型，上游不產生思考過程。",
+         "max_memory_turns_label": "每輪對話的記憶體 Thinking 儲存最大輪次",
+diff --git a/src/locales/zh.json b/src/locales/zh.json
+index 8ce5cc14..55b1b9d8 100644
+--- a/src/locales/zh.json
++++ b/src/locales/zh.json
+@@ -901,6 +901,10 @@
+       "experimental": {
+         "title": "实验性设置 (Experimental)",
+         "title_tooltip": "探索性功能，可能在未来版本中调整或移除。",
++        "cursor_cleaner_label": "Cursor 纯净流与点号清洗",
++        "cursor_cleaner_desc": "专为 Cursor 设计，实时拦截过滤 SSE 流中的连续点号瀑布、行动过渡句（自动折叠进思考抽屉）与空心跳",
++        "cursor_cleaner_started": "Cursor 纯净流已启动",
++        "cursor_cleaner_stopped": "Cursor 纯净流已停止",
+         "enable_usage_scaling": "启用用量缩放",
+         "enable_usage_scaling_tooltip": "支持所有兼容协议 (Claude/OpenAI/Gemini)。当总输入超过 30k Token 时开启激进缩放与分阶段上下文去噪提纯，防止在大上下文下频繁触发客户端压缩。注意：开启后客户端显示的用量不再代表实际计费点数。",
+         "compression_level_label": "智能上下文压缩等级",
+@@ -1017,6 +1021,8 @@
+         "claude_default_hint": "已启用官方默认模式：完全按官方协议规范透传，不注入额外自定义预算限制。",
+         "store_enabled": "服务端思考块与签名回填",
+         "store_enabled_desc": "自动截获并持久化思考过程与加密签名；当商业 Agent（如 Cline, Roo, Claude Code 等）多轮对话未带回思考时由服务端自动补齐，杜绝上游 400 报错或上下文丢失。",
++        "store_enabled_started": "服务端思考块与签名回填已启动",
++        "store_enabled_stopped": "服务端思考块与签名回填已停止",
+         "default_on_tag": "默认开启",
+         "claude_thinking_note": "💡 Claude 模型说明：Anthropic 官方模型列表仅区分带 `-thinking`（如 claude-3-7-sonnet-thinking）与普通模型。本自定义预算专门控制带 thinking 模型的思考配额；若调用普通非 thinking 模型，上游不产生思考过程。",
+         "max_memory_turns_label": "每轮对话的内存 Thinking 存储最大轮次",
+diff --git a/src/pages/Accounts.tsx b/src/pages/Accounts.tsx
+index 386025d2..234f76d9 100644
+--- a/src/pages/Accounts.tsx
++++ b/src/pages/Accounts.tsx
+@@ -452,7 +452,7 @@ function Accounts() {
+   const [isRefreshConfirmOpen, setIsRefreshConfirmOpen] = useState(false);
+ 
+   const handleRefreshClick = () => {
+-    setIsRefreshConfirmOpen(true);
++    executeRefresh();
+   };
+ 
+   const executeRefresh = async () => {
+@@ -737,7 +737,7 @@ function Accounts() {
+       />
+ 
+       {/* 顶部工具栏:搜索、过滤和操作按钮 */}
+-      <div className="flex-none flex items-center gap-2">
++      <div className="flex-none flex items-center gap-2 relative z-[100]">
+         {/* 搜索框 - 响应式:大屏显示输入框,小屏显示图标 */}
+         <div className="hidden lg:block flex-none w-40 relative transition-all focus-within:w-48">
+           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+@@ -933,13 +933,13 @@ function Accounts() {
+         <div className="flex-1 min-w-[8px]"></div>
+ 
+         {/* 操作按钮组 */}
+-        <div className="flex items-center gap-1.5 shrink-0">
++        <div className="flex items-center gap-1.5 shrink-0 relative z-[100]">
+           <AddAccountDialog onAdd={handleAddAccount} showText={false} />
+ 
+           {selectedIds.size > 0 && (
+             <>
+               <button
+-                className="px-2.5 py-2 bg-red-500 text-white text-xs font-medium rounded-lg hover:bg-red-600 transition-colors flex items-center gap-1.5 shadow-sm"
++                className="relative z-[100] px-2.5 py-2 bg-red-500 text-white text-xs font-medium rounded-lg hover:bg-red-600 transition-colors flex items-center gap-1.5 shadow-sm"
+                 onClick={handleBatchDelete}
+                 title={t("accounts.delete_selected", {
+                   count: selectedIds.size,
+@@ -951,7 +951,7 @@ function Accounts() {
+                 </span>
+               </button>
+               <button
+-                className="px-2.5 py-2 bg-orange-500 text-white text-xs font-medium rounded-lg hover:bg-orange-600 transition-colors flex items-center gap-1.5 shadow-sm"
++                className="relative z-[100] px-2.5 py-2 bg-orange-500 text-white text-xs font-medium rounded-lg hover:bg-orange-600 transition-colors flex items-center gap-1.5 shadow-sm"
+                 onClick={() => handleBatchToggleProxy(false)}
+                 title={t("accounts.disable_proxy_selected", {
+                   count: selectedIds.size,
+@@ -965,7 +965,7 @@ function Accounts() {
+                 </span>
+               </button>
+               <button
+-                className="px-2.5 py-2 bg-green-500 text-white text-xs font-medium rounded-lg hover:bg-green-600 transition-colors flex items-center gap-1.5 shadow-sm"
++                className="relative z-[100] px-2.5 py-2 bg-green-500 text-white text-xs font-medium rounded-lg hover:bg-green-600 transition-colors flex items-center gap-1.5 shadow-sm"
+                 onClick={() => handleBatchToggleProxy(true)}
+                 title={t("accounts.enable_proxy_selected", {
+                   count: selectedIds.size,
+@@ -982,7 +982,7 @@ function Accounts() {
+           )}
+ 
+           <button
+-            className={`px-2.5 py-2 bg-blue-500 text-white text-xs font-medium rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-1.5 shadow-sm ${isRefreshing ? "opacity-70 cursor-not-allowed" : ""}`}
++            className={`relative z-[100] px-2.5 py-2 bg-blue-500 text-white text-xs font-medium rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer ${isRefreshing ? "opacity-70 cursor-not-allowed" : ""}`}
+             onClick={handleRefreshClick}
+             disabled={isRefreshing}
+             title={
+@@ -1004,7 +1004,7 @@ function Accounts() {
+           </button>
+ 
+           <button
+-            className={`px-2.5 py-2 bg-orange-500 text-white text-xs font-medium rounded-lg hover:bg-orange-600 transition-colors flex items-center gap-1.5 shadow-sm ${isWarmuping ? "opacity-70 cursor-not-allowed" : ""}`}
++            className={`relative z-[100] px-2.5 py-2 bg-orange-500 text-white text-xs font-medium rounded-lg hover:bg-orange-600 transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer ${isWarmuping ? "opacity-70 cursor-not-allowed" : ""}`}
+             onClick={() => setIsWarmupConfirmOpen(true)}
+             disabled={isWarmuping}
+             title={
+@@ -1025,13 +1025,13 @@ function Accounts() {
+             </span>
+           </button>
+ 
+-          <label className="flex items-center gap-2 cursor-pointer select-none px-2 py-2 border border-transparent hover:bg-gray-100 dark:hover:bg-base-200 rounded-lg transition-colors" title={t('accounts.show_all_quotas')}>
+-            <span className="text-xs font-medium text-gray-600 dark:text-gray-300 hidden xl:inline">
++          <label className="relative z-[100] flex items-center gap-2 cursor-pointer select-none px-2.5 py-1.5 border border-gray-200/80 dark:border-base-300 rounded-lg bg-gray-50/50 dark:bg-base-200/30 hover:bg-gray-100 dark:hover:bg-base-200 transition-colors" title={t('accounts.show_all_quotas')}>
++            <span className="text-xs font-medium text-gray-700 dark:text-gray-200 hidden xl:inline">
+               {t('accounts.show_all_quotas')}
+             </span>
+             <input
+               type="checkbox"
+-              className="toggle toggle-xs toggle-primary"
++              className="toggle toggle-sm toggle-primary cursor-pointer"
+               checked={showAllQuotas}
+               onChange={toggleShowAllQuotas}
+             />
+@@ -1039,7 +1039,7 @@ function Accounts() {
+           <div className="w-px h-4 bg-gray-200 dark:bg-gray-700 self-center mx-1 shrink-0"></div>
+ 
+           <button
+-            className="px-2.5 py-2 border border-gray-200 dark:border-base-300 text-gray-700 dark:text-gray-300 text-xs font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-base-200 transition-colors flex items-center gap-1.5"
++            className="relative z-[100] px-2.5 py-2 border border-gray-200 dark:border-base-300 text-gray-700 dark:text-gray-300 text-xs font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-base-200 transition-colors flex items-center gap-1.5 cursor-pointer"
+             onClick={handleImportJson}
+             title={t("accounts.import_json")}
+           >
+@@ -1050,7 +1050,7 @@ function Accounts() {
+           </button>
+ 
+           <button
+-            className="px-2.5 py-2 border border-gray-200 dark:border-base-300 text-gray-700 dark:text-gray-300 text-xs font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-base-200 transition-colors flex items-center gap-1.5"
++            className="relative z-[100] px-2.5 py-2 border border-gray-200 dark:border-base-300 text-gray-700 dark:text-gray-300 text-xs font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-base-200 transition-colors flex items-center gap-1.5 cursor-pointer"
+             onClick={handleExport}
+             title={
+               selectedIds.size > 0
+diff --git a/src/pages/ApiProxy.tsx b/src/pages/ApiProxy.tsx
+index 194e533f..dd02b807 100644
+--- a/src/pages/ApiProxy.tsx
++++ b/src/pages/ApiProxy.tsx
+@@ -772,6 +772,48 @@ export default function ApiProxy() {
+         saveConfig(newConfig);
+     };
+ 
++    const handleToggleCursorCleaner = async (enabled: boolean) => {
++        if (!appConfig) return;
++        const newConfig = {
++            ...appConfig,
++            proxy: {
++                ...appConfig.proxy,
++                cursor_cleaner: enabled
++            }
++        };
++        await saveConfig(newConfig);
++        if (enabled) {
++            showToast(t('proxy.config.experimental.cursor_cleaner_started', { defaultValue: 'Cursor 纯净流已启动' }), 'success');
++        } else {
++            showToast(t('proxy.config.experimental.cursor_cleaner_stopped', { defaultValue: 'Cursor 纯净流已停止' }), 'success');
++        }
++    };
++
++    const handleToggleThinkingStore = async (enabled: boolean) => {
++        if (!appConfig) return;
++        const newConfig = {
++            ...appConfig,
++            proxy: {
++                ...appConfig.proxy,
++                experimental: {
++                    ...(appConfig.proxy.experimental || {
++                        enable_usage_scaling: true,
++                        context_compression_threshold_l1: 0.4,
++                        context_compression_threshold_l2: 0.55,
++                        context_compression_threshold_l3: 0.7
++                    }),
++                    thinking_store_enabled: enabled
++                }
++            }
++        };
++        await saveConfig(newConfig);
++        if (enabled) {
++            showToast(t('proxy.config.thinking_budget.store_enabled_started', { defaultValue: '服务端思考块与签名回填已启动' }), 'success');
++        } else {
++            showToast(t('proxy.config.thinking_budget.store_enabled_stopped', { defaultValue: '服务端思考块与签名回填已停止' }), 'success');
++        }
++    };
++
+     const updateCircuitBreakerConfig = (newBreakerConfig: CircuitBreakerConfig) => {
+         if (!appConfig) return;
+         const newConfig = {
+@@ -2164,9 +2206,7 @@ print(response.choices[0].message.content)`;
+                                     onChange={(tbConfig) => updateProxyConfig({ thinking_budget: tbConfig })}
+                                     onSave={handleSaveProxySettings}
+                                     thinkingStoreEnabled={appConfig.proxy.experimental?.thinking_store_enabled !== false}
+-                                    onThinkingStoreChange={(enabled) =>
+-                                        updateExperimentalConfig({ thinking_store_enabled: enabled })
+-                                    }
++                                    onThinkingStoreChange={handleToggleThinkingStore}
+                                     thinkingMaxMemoryTurns={appConfig.proxy.experimental?.thinking_max_memory_turns ?? 600}
+                                     onThinkingMaxMemoryTurnsChange={(turns: number) =>
+                                         updateExperimentalConfig({ thinking_max_memory_turns: turns })
+@@ -2602,6 +2642,36 @@ print(response.choices[0].message.content)`;
+                                 icon={<Sparkles size={18} className="text-purple-500" />}
+                             >
+                                 <div className="space-y-4">
++                                    {/* Cursor 纯净流与点号清洗 */}
++                                    <div
++                                        className="flex items-center justify-between p-4 bg-gray-50 dark:bg-base-200 rounded-xl border border-gray-100 dark:border-base-300 cursor-pointer hover:bg-gray-100/70 dark:hover:bg-base-300/50 transition-colors"
++                                        onClick={() => handleToggleCursorCleaner(!(appConfig.proxy.cursor_cleaner ?? false))}
++                                    >
++                                        <div className="space-y-1 select-none">
++                                            <div className="flex items-center gap-2">
++                                                <span className="text-sm font-bold text-gray-900 dark:text-base-content">
++                                                    {t('proxy.config.experimental.cursor_cleaner_label', { defaultValue: 'Cursor 纯净流与点号清洗' })}
++                                                </span>
++                                                <div onClick={(e) => e.stopPropagation()}>
++                                                    <HelpTooltip text={t('proxy.config.experimental.cursor_cleaner_desc', { defaultValue: '专为 Cursor 设计，实时拦截过滤 SSE 流中的连续点号瀑布、行动过渡句（自动折叠进思考抽屉）与空心跳' })} />
++                                                </div>
++                                                <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/30 text-[10px] text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-200 dark:border-emerald-800">
++                                                    Cursor / Claude / OpenAI
++                                                </span>
++                                            </div>
++                                            <p className="text-[10px] text-gray-500 dark:text-gray-400 max-w-lg">
++                                                {t('proxy.config.experimental.cursor_cleaner_desc', { defaultValue: '专为 Cursor 设计，实时拦截过滤 SSE 流中的连续点号瀑布、行动过渡句（自动折叠进思考抽屉）与空心跳' })}
++                                            </p>
++                                        </div>
++                                        <input
++                                            type="checkbox"
++                                            className="toggle toggle-sm bg-gray-200 dark:bg-base-300 border-gray-300 dark:border-base-300 checked:bg-blue-600 checked:border-blue-600 cursor-pointer"
++                                            checked={appConfig.proxy.cursor_cleaner ?? false}
++                                            onClick={(e) => e.stopPropagation()}
++                                            onChange={(e) => handleToggleCursorCleaner(e.target.checked)}
++                                        />
++                                    </div>
++
+                                     <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-base-200 rounded-xl border border-gray-100 dark:border-base-300">
+                                         <div className="space-y-1">
+                                             <div className="flex items-center gap-2">
+diff --git a/src/pages/Settings.tsx b/src/pages/Settings.tsx
+index 8bda390f..aba1a7f8 100644
+--- a/src/pages/Settings.tsx
++++ b/src/pages/Settings.tsx
+@@ -1,4 +1,5 @@
+ import { useState, useEffect, startTransition } from 'react';
++import { createPortal } from 'react-dom';
+ import { Save, Github, User, MessageCircle, ExternalLink, RefreshCw, Heart, Coffee, LayoutDashboard, Users, Network, Activity, BarChart3, Settings as SettingsIcon, Lock, CheckCircle2, Globe, Send } from 'lucide-react';
+ import { request as invoke } from '../utils/request';
+ import { open } from '@tauri-apps/plugin-dialog';
+@@ -42,6 +43,7 @@ function Settings() {
+     const { enable, disable, isEnabled } = useDebugConsole();
+     const [activeTab, setActiveTab] = useState<'general' | 'account' | 'proxy' | 'advanced' | 'debug' | 'about'>('general');
+     const [appVersion, setAppVersion] = useState<string>('4.8.1');
++    const [isSaving, setIsSaving] = useState(false);
+     const [formData, setFormData] = useState<AppConfig>({
+         language: 'zh',
+         theme: 'system',
+@@ -180,6 +182,8 @@ function Settings() {
+     // 删除自动启用调试控制台的逻辑 - 改为用户手动控制
+ 
+     const handleSave = async () => {
++        if (isSaving) return;
++        setIsSaving(true);
+         try {
+             // 校验：如果启用了上游代理但没有填写地址，给出提示
+             const proxyEnabled = formData.proxy?.upstream_proxy?.enabled;
+@@ -198,6 +202,8 @@ function Settings() {
+             }
+         } catch (error) {
+             showToast(`${t('common.error')}: ${error}`, 'error');
++        } finally {
++            setIsSaving(false);
+         }
+     };
+ 
+@@ -530,11 +536,16 @@ function Settings() {
+                     </div>
+ 
+                     <button
+-                        className="px-4 py-2 bg-blue-500 text-white text-sm rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2 shadow-sm"
++                        className={`px-4 py-2 bg-blue-500 text-white text-sm rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2 shadow-sm ${isSaving ? 'opacity-75 cursor-not-allowed' : ''}`}
+                         onClick={handleSave}
++                        disabled={isSaving}
+                     >
+-                        <Save className="w-4 h-4" />
+-                        {t('settings.save')}
++                        {isSaving ? (
++                            <RefreshCw className="w-4 h-4 animate-spin" />
++                        ) : (
++                            <Save className="w-4 h-4" />
++                        )}
++                        {isSaving ? t('common.saving', { defaultValue: '保存中...' }) : t('settings.save')}
+                     </button>
+                 </div>
+ 
+@@ -1553,7 +1564,7 @@ function Settings() {
+ 
+                                     {/* GitHub Card */}
+                                     <a
+-                                        href="https://github.com/lbjlaq/Antigravity-Manager"
++                                        href="https://github.com/weifeng0222/Antigravity-Manager"
+                                         target="_blank"
+                                         rel="noreferrer"
+                                         className="bg-white dark:bg-base-100 p-4 rounded-2xl border border-gray-100 dark:border-base-300 shadow-sm hover:shadow-md hover:border-gray-300 dark:hover:border-gray-600 transition-all group flex flex-col items-center text-center gap-3 cursor-pointer"
+@@ -1833,56 +1844,59 @@ function Settings() {
+                 </ModalDialog>
+ 
+                 {/* Support Modal */}
+-                <div className={`modal ${isSupportModalOpen ? 'modal-open' : ''} z-[100]`}>
+-                    <div data-tauri-drag-region className="fixed top-0 left-0 right-0 h-8 z-[110]" />
+-                    <div className="modal-box relative max-w-2xl bg-white dark:bg-base-100 shadow-2xl rounded-3xl p-0 overflow-hidden transform transition-all animate-in fade-in zoom-in-95 duration-300">
+-                        <div className="flex flex-col items-center p-8">
+-                            <div className="w-16 h-16 bg-pink-50 dark:bg-pink-900/20 rounded-2xl flex items-center justify-center mb-6 shadow-sm">
+-                                <Coffee className="w-8 h-8 text-pink-500" />
+-                            </div>
++                {isSupportModalOpen && createPortal(
++                    <div className="modal modal-open z-[100] fixed inset-0 flex items-center justify-center p-4">
++                        <div data-tauri-drag-region className="fixed top-0 left-0 right-0 h-8 z-[110]" />
++                        <div className="modal-box relative z-10 max-w-2xl w-full bg-white dark:bg-base-100 shadow-2xl rounded-3xl p-0 overflow-hidden transform transition-all animate-in fade-in zoom-in-95 duration-300">
++                            <div className="flex flex-col items-center p-8">
++                                <div className="w-16 h-16 bg-pink-50 dark:bg-pink-900/20 rounded-2xl flex items-center justify-center mb-6 shadow-sm">
++                                    <Coffee className="w-8 h-8 text-pink-500" />
++                                </div>
+ 
+-                            <h3 className="text-2xl font-black text-gray-900 dark:text-base-content mb-3">{t('settings.about.support_title')}</h3>
+-                            <p className="text-gray-500 dark:text-gray-400 text-sm text-center mb-8 max-w-md leading-relaxed">
+-                                {t('settings.about.support_desc')}
+-                            </p>
++                                <h3 className="text-2xl font-black text-gray-900 dark:text-base-content mb-3">{t('settings.about.support_title')}</h3>
++                                <p className="text-gray-500 dark:text-gray-400 text-sm text-center mb-8 max-w-md leading-relaxed">
++                                    {t('settings.about.support_desc')}
++                                </p>
+ 
+-                            {/* QR Codes Grid */}
+-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full mb-8">
+-                                {/* Alipay */}
+-                                <div className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-gray-50 dark:bg-base-200 border border-gray-100 dark:border-base-300">
+-                                    <div className="w-full aspect-square relative bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100">
+-                                        <img src="/images/donate/alipay.png" alt="Alipay" className="w-full h-full object-contain" />
++                                {/* QR Codes Grid */}
++                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full mb-8">
++                                    {/* Alipay */}
++                                    <div className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-gray-50 dark:bg-base-200 border border-gray-100 dark:border-base-300">
++                                        <div className="w-full aspect-square relative bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100">
++                                            <img src="/images/donate/alipay.png" alt="Alipay" className="w-full h-full object-contain" />
++                                        </div>
++                                        <span className="text-xs font-bold text-gray-700 dark:text-gray-300">{t('settings.about.support_alipay')}</span>
+                                     </div>
+-                                    <span className="text-xs font-bold text-gray-700 dark:text-gray-300">{t('settings.about.support_alipay')}</span>
+-                                </div>
+ 
+-                                {/* WeChat */}
+-                                <div className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-gray-50 dark:bg-base-200 border border-gray-100 dark:border-base-300">
+-                                    <div className="w-full aspect-square relative bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100">
+-                                        <img src="/images/donate/wechat.png" alt="WeChat" className="w-full h-full object-contain" />
++                                    {/* WeChat */}
++                                    <div className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-gray-50 dark:bg-base-200 border border-gray-100 dark:border-base-300">
++                                        <div className="w-full aspect-square relative bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100">
++                                            <img src="/images/donate/wechat.png" alt="WeChat" className="w-full h-full object-contain" />
++                                        </div>
++                                        <span className="text-xs font-bold text-gray-700 dark:text-gray-300">{t('settings.about.support_wechat')}</span>
+                                     </div>
+-                                    <span className="text-xs font-bold text-gray-700 dark:text-gray-300">{t('settings.about.support_wechat')}</span>
+-                                </div>
+ 
+-                                {/* Buy Me a Coffee */}
+-                                <div className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-gray-50 dark:bg-base-200 border border-gray-100 dark:border-base-300">
+-                                    <div className="w-full aspect-square relative bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100">
+-                                        <img src="/images/donate/coffee.png" alt="Buy Me A Coffee" className="w-full h-full object-contain" />
++                                    {/* Buy Me a Coffee */}
++                                    <div className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-gray-50 dark:bg-base-200 border border-gray-100 dark:border-base-300">
++                                        <div className="w-full aspect-square relative bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100">
++                                            <img src="/images/donate/coffee.png" alt="Buy Me A Coffee" className="w-full h-full object-contain" />
++                                        </div>
++                                        <span className="text-xs font-bold text-gray-700 dark:text-gray-300">{t('settings.about.support_buymeacoffee')}</span>
+                                     </div>
+-                                    <span className="text-xs font-bold text-gray-700 dark:text-gray-300">{t('settings.about.support_buymeacoffee')}</span>
+                                 </div>
+-                            </div>
+ 
+-                            <button
+-                                onClick={() => setIsSupportModalOpen(false)}
+-                                className="w-full md:w-auto px-12 py-3 bg-gray-100 dark:bg-base-300 text-gray-700 dark:text-gray-200 font-bold rounded-xl hover:bg-gray-200 dark:hover:bg-base-200 transition-all"
+-                            >
+-                                {t('common.close') || 'Close'}
+-                            </button>
++                                <button
++                                    onClick={() => setIsSupportModalOpen(false)}
++                                    className="w-full md:w-auto px-12 py-3 bg-gray-100 dark:bg-base-300 text-gray-700 dark:text-gray-200 font-bold rounded-xl hover:bg-gray-200 dark:hover:bg-base-200 transition-all"
++                                >
++                                    {t('common.close') || 'Close'}
++                                </button>
++                            </div>
+                         </div>
+-                    </div>
+-                    <div className="modal-backdrop bg-black/60 backdrop-blur-md fixed inset-0 z-[-1]" onClick={() => setIsSupportModalOpen(false)}></div>
+-                </div>
++                        <div className="modal-backdrop bg-black/60 backdrop-blur-md fixed inset-0 z-0" onClick={() => setIsSupportModalOpen(false)}></div>
++                    </div>,
++                    document.body
++                )}
+             </div >
+         </div >
+     );
+diff --git a/src/pages/UserToken.tsx b/src/pages/UserToken.tsx
+index 34699eab..2cb3fa85 100644
+--- a/src/pages/UserToken.tsx
++++ b/src/pages/UserToken.tsx
+@@ -1,4 +1,5 @@
+ import React, { useState, useEffect } from 'react';
++import { createPortal } from 'react-dom';
+ import { useTranslation } from 'react-i18next';
+ import { Plus, Trash2, RefreshCw, Copy, Activity, User, Settings, Shield, Clock, Users } from 'lucide-react';
+ import { motion, AnimatePresence } from 'framer-motion';
+@@ -455,9 +456,9 @@ const UserToken: React.FC = () => {
+             </div>
+ 
+             {/* Create Modal */}
+-            {showCreateModal && (
+-                <div className="modal modal-open">
+-                    <div className="modal-box">
++            {showCreateModal && createPortal(
++                <div className="modal modal-open fixed inset-0 z-[100] flex items-center justify-center p-4">
++                    <div className="modal-box relative z-10 max-w-lg w-full bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 shadow-2xl rounded-2xl p-6">
+                         <h3 className="font-bold text-lg mb-4">{t('user_token.create_title', { defaultValue: 'Create New Token' })}</h3>
+ 
+                         <div className="form-control w-full mb-3">
+@@ -579,13 +580,15 @@ const UserToken: React.FC = () => {
+                             </button>
+                         </div>
+                     </div>
+-                </div>
++                    <div className="modal-backdrop fixed inset-0 z-0 bg-black/45 backdrop-blur-sm" onClick={() => setShowCreateModal(false)}></div>
++                </div>,
++                document.body
+             )}
+ 
+             {/* Edit Modal */}
+-            {showEditModal && editingToken && (
+-                <div className="modal modal-open">
+-                    <div className="modal-box">
++            {showEditModal && editingToken && createPortal(
++                <div className="modal modal-open fixed inset-0 z-[100] flex items-center justify-center p-4">
++                    <div className="modal-box relative z-10 max-w-lg w-full bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 shadow-2xl rounded-2xl p-6">
+                         <h3 className="font-bold text-lg mb-4">{t('user_token.edit_title', { defaultValue: 'Edit Token' })}</h3>
+ 
+                         <div className="form-control w-full mb-3">
+@@ -669,7 +672,9 @@ const UserToken: React.FC = () => {
+                             </button>
+                         </div>
+                     </div>
+-                </div>
++                    <div className="modal-backdrop fixed inset-0 z-0 bg-black/45 backdrop-blur-sm" onClick={() => setShowEditModal(false)}></div>
++                </div>,
++                document.body
+             )}
+         </motion.div>
+     );
+diff --git a/src/types/config.ts b/src/types/config.ts
+index a2c5afe7..c7c5d2e2 100644
+--- a/src/types/config.ts
++++ b/src/types/config.ts
+@@ -27,6 +27,7 @@ export interface ProxyConfig {
+     global_system_prompt?: GlobalSystemPromptConfig;
+     image_thinking_mode?: 'enabled' | 'disabled'; // [NEW] 图像思维模式开关
+     only_raw_quota_models?: boolean; // [NEW] 是否只暴露真实配额模型
++    cursor_cleaner?: boolean; // [NEW] Cursor 纯净流与点号清洗开关
+     proxy_pool?: ProxyPoolConfig;
+ }
+ 
+diff --git a/update_and_rebuild.sh b/update_and_rebuild.sh
+new file mode 100755
+index 00000000..ea39e1d9
+--- /dev/null
++++ b/update_and_rebuild.sh
+@@ -0,0 +1,114 @@
++#!/bin/bash
++# ==============================================================================
++# Antigravity Tools - 上游更新与 Cursor 适配一键重构脚本
++# 功能：拉取官方最新代码 -> 自动合并 Cursor 适配补丁 -> 一键编译并安装到 Mac
++# ==============================================================================
++
++set -eo pipefail
++
++GREEN='\033[0;32m'
++BLUE='\033[0;34m'
++YELLOW='\033[1;33m'
++RED='\033[0;31m'
++CYAN='\033[0;36m'
++BOLD='\033[1m'
++NC='\033[0m'
++
++log_info() {
++    echo -e "${BLUE}${BOLD}[INFO]${NC} $1"
++}
++
++log_success() {
++    echo -e "${GREEN}${BOLD}[SUCCESS]${NC} $1"
++}
++
++log_warn() {
++    echo -e "${YELLOW}${BOLD}[WARN]${NC} $1"
++}
++
++log_error() {
++    echo -e "${RED}${BOLD}[ERROR]${NC} $1"
++}
++
++REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++cd "$REPO_DIR"
++
++PATCH_FILE="$REPO_DIR/patches/cursor-cleaner.patch"
++
++echo -e "${CYAN}${BOLD}"
++echo "=========================================================="
++echo "    🔄 Antigravity Tools 上游更新与 Cursor 适配脚本"
++echo "=========================================================="
++echo -e "${NC}"
++
++# 1. 检查补丁文件是否存在
++if [ ! -f "$PATCH_FILE" ]; then
++    log_warn "未找到预存补丁，正在从当前分支生成 patches/cursor-cleaner.patch..."
++    mkdir -p "$REPO_DIR/patches"
++    git add -N src-tauri/src/proxy/common/cursor_cleaner.rs 2>/dev/null || true
++    git diff HEAD > "$PATCH_FILE"
++    log_success "已成功导出当前 Cursor 适配补丁: $PATCH_FILE"
++fi
++
++# 2. 从官方仓库拉取最新提交与标签
++UPSTREAM_REMOTE="origin"
++if git remote | grep -q "upstream"; then
++    UPSTREAM_REMOTE="upstream"
++fi
++log_info "正在连接 GitHub 拉取官方最新版本 (从 ${UPSTREAM_REMOTE})..."
++git fetch "$UPSTREAM_REMOTE" --tags --prune
++
++# 3. 计算最新版本
++LATEST_TAG=$(git tag -l "v*" --sort=-v:refname | head -n 1 || true)
++CURRENT_VER=$(grep '"version":' package.json | head -n 1 | awk -F: '{ print $2 }' | sed 's/[", ]//g')
++TARGET="${1:-}"
++
++if [ -z "$TARGET" ]; then
++    if [ -n "$LATEST_TAG" ]; then
++        TARGET="$LATEST_TAG"
++    else
++        TARGET="origin/main"
++    fi
++fi
++
++log_info "当前本地版本: ${BOLD}v${CURRENT_VER}${NC}"
++log_info "目标更新版本: ${BOLD}${TARGET}${NC}"
++
++# 4. 询问或准备更新分支
++NEW_BRANCH="update-${TARGET//\//-}-cursor-cleaner"
++log_info "准备创建干净的更新分支: ${NEW_BRANCH}..."
++
++# 暂存或提交可能存在的未跟踪修改
++if ! git diff-index --quiet HEAD -- 2>/dev/null; then
++    log_warn "检测到当前工作区有未提交的代码，正在安全保存当前补丁副本..."
++    git add -N src-tauri/src/proxy/common/cursor_cleaner.rs 2>/dev/null || true
++    git diff HEAD > "$PATCH_FILE.backup"
++    cp "$PATCH_FILE.backup" "$PATCH_FILE"
++    git stash push -m "Auto-stash before update to $TARGET"
++fi
++
++# 切换到干净的目标版本
++git checkout -B "$NEW_BRANCH" "$TARGET"
++
++log_info "已切换到目标版本 $TARGET，正在自动注入 Cursor 纯净流与点号清洗补丁..."
++
++# 5. 应用 Cursor 纯净流补丁 (优先三向合并)
++if git apply --check "$PATCH_FILE" 2>/dev/null; then
++    git apply "$PATCH_FILE"
++    log_success "Cursor 适配补丁应用成功！"
++elif git apply --3way "$PATCH_FILE" 2>/dev/null; then
++    log_success "Cursor 适配补丁通过三向合并 (3-Way Merge) 自动合入成功！"
++else
++    log_warn "标准 patch 匹配发生偏移，尝试容错合并..."
++    if patch -p1 -N < "$PATCH_FILE"; then
++        log_success "Cursor 适配补丁通过模糊匹配应用成功！"
++    else
++        log_error "补丁合并遇到冲突！可能官方在新版本重构了相关文件。"
++        log_error "请检查冲突文件或手动微调。"
++        exit 1
++    fi
++fi
++
++# 6. 一键编译与安装
++log_info "代码更新与适配就绪，开始执行编译打包与安装..."
++"$REPO_DIR/build_and_install.sh"
