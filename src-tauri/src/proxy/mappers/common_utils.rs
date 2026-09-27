@@ -1145,8 +1145,8 @@ mod tests {
             None
         );
 
-        // 4. Valid PNG base64 (8 bytes magic header)
-        let valid_png_b64 = "iVBORw0KGgo=";
+        // 4. Valid 1x1 PNG base64 (must be decodable, not just a magic header)
+        let valid_png_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
         let res = validate_and_sanitize_inline_data(Some("image/png"), valid_png_b64);
         assert!(res.is_some());
         let (mime, data) = res.unwrap();
@@ -1157,11 +1157,35 @@ mod tests {
         let res_no_mime = validate_and_sanitize_inline_data(None, valid_png_b64);
         assert!(res_no_mime.is_some());
         assert_eq!(res_no_mime.unwrap().0, "image/png");
+
+        // 6. Base64 that decodes successfully but is actually a tool-output placeholder
+        // must never be forwarded as image data.
+        use base64::Engine as _;
+        let placeholder = base64::engine::general_purpose::STANDARD
+            .encode("[Image: forwarded to visual input (image/jpeg)]");
+        assert_eq!(
+            validate_and_sanitize_inline_data(Some("image/jpeg"), &placeholder),
+            None
+        );
+
+        // 7. A declared image MIME must agree with the file signature.
+        assert_eq!(
+            validate_and_sanitize_inline_data(Some("image/jpeg"), valid_png_b64),
+            None
+        );
+
+        // A JPEG header alone is not a usable image; truncated payloads must be rejected.
+        let truncated_jpeg = base64::engine::general_purpose::STANDARD
+            .encode([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, b'J', b'F', b'I', b'F']);
+        assert_eq!(
+            validate_and_sanitize_inline_data(Some("image/jpeg"), &truncated_jpeg),
+            None
+        );
     }
 
     #[test]
     fn test_create_gemini_inline_part() {
-        let valid_png_b64 = "iVBORw0KGgo=";
+        let valid_png_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
         let valid_part = create_gemini_inline_part(Some("image/png"), valid_png_b64, "Image");
         assert!(valid_part.get("inlineData").is_some());
         assert_eq!(valid_part["inlineData"]["mimeType"], "image/png");
@@ -1176,7 +1200,7 @@ mod tests {
 
     #[test]
     fn test_sanitize_gemini_payload_inline_data() {
-        let valid_png_b64 = "iVBORw0KGgo=";
+        let valid_png_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
         let mut payload = json!({
             "contents": [
                 {
@@ -1433,6 +1457,20 @@ pub fn detect_mime_from_bytes(bytes: &[u8]) -> Option<&'static str> {
     }
 }
 
+/// Check that a recognized raster image is structurally decodable, rather than merely
+/// beginning with a matching magic header. Truncated JPEGs are a common source of Google's
+/// opaque "Unable to process input image" 400 response.
+fn is_decodable_raster_image(bytes: &[u8], mime: &str) -> bool {
+    match mime {
+        "image/gif" | "image/jpeg" | "image/png" | "image/webp" => {
+            image::load_from_memory(bytes).is_ok()
+        }
+        // HEIC is recognized for MIME consistency, but this build does not include an HEIC
+        // decoder. Keep the existing signature check for it and let the upstream service decide.
+        _ => true,
+    }
+}
+
 /// Validates and sanitizes inline base64 data (images/documents) for Gemini upstream.
 /// Returns `Some((mime_type, sanitized_b64))` if valid, or `None` if corrupt/empty/too small.
 pub fn validate_and_sanitize_inline_data(
@@ -1469,28 +1507,38 @@ pub fn validate_and_sanitize_inline_data(
         .unwrap_or(false);
 
     if !is_audio_or_video {
-        // For images/documents, require at least 5 decoded bytes and 8 base64 chars
+        // Images/documents must contain enough bytes to inspect their file signature. This is
+        // deliberately stricter than a base64-only check: tool output can contain placeholders
+        // such as "[Image: forwarded to visual input ...]" that are valid base64 but not images.
         if clean_b64.len() < 8 || decoded_bytes.len() < 5 {
             return None;
         }
     }
 
-    // Detect MIME from magic bytes if possible
+    // Detect MIME from magic bytes if possible. A declared image/document MIME is only trusted
+    // when it agrees with the bytes; otherwise the invalid payload would reach Google and produce
+    // the opaque 400 "Unable to process input image" error.
     let inferred_mime = detect_mime_from_bytes(&decoded_bytes);
-
-    let final_mime = match (mime_type.map(str::trim), inferred_mime) {
-        (Some(m), _)
-            if !m.is_empty()
-                && (m.starts_with("image/")
-                    || m.starts_with("application/")
-                    || m.starts_with("audio/")
-                    || m.starts_with("video/")) =>
-        {
-            m.to_string()
+    if !is_audio_or_video {
+        let Some(inferred) = inferred_mime else {
+            return None;
+        };
+        if let Some(declared) = declared_mime {
+            let matches = declared.eq_ignore_ascii_case(inferred)
+                || (declared.eq_ignore_ascii_case("image/jpg") && inferred == "image/jpeg");
+            if !matches {
+                return None;
+            }
         }
-        (_, Some(inferred)) => inferred.to_string(),
+        if inferred.starts_with("image/") && !is_decodable_raster_image(&decoded_bytes, inferred) {
+            return None;
+        }
+    }
+
+    let final_mime = match (declared_mime, inferred_mime) {
         (Some(m), _) if !m.is_empty() => m.to_string(),
-        _ => "image/jpeg".to_string(), // fallback default
+        (_, Some(inferred)) => inferred.to_string(),
+        _ => return None,
     };
 
     Some((final_mime, clean_b64.to_string()))
@@ -1736,9 +1784,8 @@ pub const TRANSIT_DEFENSE_FALLBACK_TEXT: &str = "Please continue your analysis."
 /// 1. 自动兼容平铺 payload 或包含 "request" 包装的 payload；
 /// 2. 若 contents 为空，追加 {"role": "user", "parts": [{"text": TRANSIT_DEFENSE_FALLBACK_TEXT}]}；
 /// 3. 若末尾轮次为 "model"（缺失用户轮次），追加 {"role": "user", "parts": [{"text": TRANSIT_DEFENSE_FALLBACK_TEXT}]}；
-///    例外：末尾 model 轮若携带 functionCall / functionResponse（模型主动发起的工具轮），
-///    视为合法中间态，不注入（否则会与 normalize_function_response_roles 的 fr@model 对齐
-///    打架，把官方合法报文误判为缺用户轮，注入"Please continue your analysis."造成工具死循环）；
+///    仅当末尾 model 轮携带 functionCall（模型主动发起工具、等待回执）时保留为合法中间态。
+///    functionResponse 表示工具结果已经返回，不能作为请求结尾；
 /// 4. 若末尾轮次为 "user" 且其 parts 为空、或仅含有空文本 / "(no content)" / "·" 且无工具/图片，规范化填充为 [{"text": TRANSIT_DEFENSE_FALLBACK_TEXT}]；
 /// 5. 修复中间轮次中 parts 为空的情况，防止 Google 返回 400 "parts must not be empty"。
 pub fn ensure_gemini_payload_ends_with_user(body: &mut Value) -> bool {
@@ -1787,21 +1834,18 @@ pub fn ensure_gemini_payload_ends_with_user(body: &mut Value) -> bool {
 
     // 防御 3: 检查末尾轮次。
     // 注意：InboundThinkingPipeline::normalize_function_response_roles 会把纯回执轮对齐为
-    // role=model（官方 Antigravity 报文约定 fr 恒在 model 轮）。因此「末尾为 model 轮」
-    // 并不代表报文不完整——若该轮携带 functionCall（模型主动发起工具轮，等待回执，
-    // 属于合法的中间态），绝不能注入假用户话术，否则会放大成 Agent 工具死循环。
+    // role=model（官方 Antigravity 报文约定 fr 恒在 model 轮）。但已经带有
+    // functionResponse 的 model 轮表示工具结果已经返回；如果它位于请求末尾，Google
+    // 会拒绝该请求（"Requests ending with a model turn are not supported"）。只有
+    // functionCall（模型主动发起工具轮、等待回执）可以保留为末尾中间态。
     let need_append_user = if let Some(last_turn) = contents.last_mut() {
         let role = last_turn.get("role").and_then(|r| r.as_str()).unwrap_or("");
         if role == "model" || role == "assistant" {
-            // 工具轮合法：末尾 model 轮含 functionCall 或 functionResponse 时不注入
+            // 等待工具回执的 functionCall 轮可以保留；functionResponse 末尾必须补 user。
             let is_tool_turn = last_turn
                 .get("parts")
                 .and_then(|p| p.as_array())
-                .map(|parts| {
-                    parts.iter().any(|part| {
-                        part.get("functionCall").is_some() || part.get("functionResponse").is_some()
-                    })
-                })
+                .map(|parts| parts.iter().any(|part| part.get("functionCall").is_some()))
                 .unwrap_or(false);
             !is_tool_turn
         } else {
@@ -1978,6 +2022,26 @@ mod defense_tests {
         let contents2 = payload2["contents"].as_array().unwrap();
         assert_eq!(contents2.len(), 3);
         assert_eq!(contents2[2]["role"], "user");
+
+        // 已完成的 functionResponse 轮不能作为请求结尾，否则 Google 会拒绝请求。
+        let mut payload3 = json!({
+            "contents": [
+                { "role": "user", "parts": [{ "text": "run the tool" }] },
+                {
+                    "role": "model",
+                    "parts": [{
+                        "functionResponse": {
+                            "name": "run_command",
+                            "id": "call_1",
+                            "response": { "result": "ok" }
+                        }
+                    }]
+                }
+            ]
+        });
+        assert!(ensure_gemini_payload_ends_with_user(&mut payload3));
+        let contents3 = payload3["contents"].as_array().unwrap();
+        assert_eq!(contents3.last().unwrap()["role"], "user");
     }
 
     #[test]
