@@ -108,6 +108,9 @@ fi
 if [ -f "$REPO_DIR/build_and_install.sh" ]; then
     cp "$REPO_DIR/build_and_install.sh" "$TEMP_DIR/build_and_install.sh"
 fi
+if [ -f "$REPO_DIR/patch_cursor_extension.sh" ]; then
+    cp "$REPO_DIR/patch_cursor_extension.sh" "$TEMP_DIR/patch_cursor_extension.sh"
+fi
 if [ -f "$REPO_DIR/update_and_rebuild.sh" ]; then
     cp "$REPO_DIR/update_and_rebuild.sh" "$TEMP_DIR/update_and_rebuild.sh"
 fi
@@ -136,6 +139,10 @@ fi
 if [ -f "$TEMP_DIR/build_and_install.sh" ]; then
     cp "$TEMP_DIR/build_and_install.sh" "$REPO_DIR/build_and_install.sh"
     chmod +x "$REPO_DIR/build_and_install.sh"
+fi
+if [ -f "$TEMP_DIR/patch_cursor_extension.sh" ]; then
+    cp "$TEMP_DIR/patch_cursor_extension.sh" "$REPO_DIR/patch_cursor_extension.sh"
+    chmod +x "$REPO_DIR/patch_cursor_extension.sh"
 fi
 if [ -f "$TEMP_DIR/update_and_rebuild.sh" ]; then
     cp "$TEMP_DIR/update_and_rebuild.sh" "$REPO_DIR/update_and_rebuild.sh"

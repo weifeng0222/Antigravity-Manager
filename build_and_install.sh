@@ -126,7 +126,13 @@ xattr -cr "$TARGET_APP" 2>/dev/null || true
 log_info "正在启动新版本 Antigravity Tools..."
 open "$TARGET_APP"
 
+# 9. 检查并修补 Cursor 插件快速分词（防止生图后 90s Stall 卡顿重连循环）
+if [ -f "$REPO_DIR/patch_cursor_extension.sh" ]; then
+    log_info "步骤 5/5: 检查并自动注入 Cursor 插件快速分词补丁..."
+    bash "$REPO_DIR/patch_cursor_extension.sh" || true
+fi
+
 echo -e "\n${GREEN}${BOLD}=========================================================="
 echo "    🎉 Antigravity Tools v${APP_VERSION} 编译并安装成功！"
-echo "    ✨ Cursor 纯净流与点号清洗补丁已成功内置！"
+echo "    ✨ Cursor 纯净流、点号清洗与图像防重连补丁已全部就绪！"
 echo "==========================================================${NC}\n"
