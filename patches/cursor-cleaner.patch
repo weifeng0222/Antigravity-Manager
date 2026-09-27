@@ -1095,7 +1095,7 @@ index d24b8f51..43a9af06 100644
  
  // ==========================================
 diff --git a/src-tauri/src/proxy/mappers/claude/response.rs b/src-tauri/src/proxy/mappers/claude/response.rs
-index 15223515..68514474 100644
+index 15223515..de6f6e31 100644
 --- a/src-tauri/src/proxy/mappers/claude/response.rs
 +++ b/src-tauri/src/proxy/mappers/claude/response.rs
 @@ -93,15 +93,40 @@ impl NonStreamingProcessor {
@@ -1199,8 +1199,26 @@ index 15223515..68514474 100644
                  }
              }
          }
+@@ -236,7 +245,16 @@ impl NonStreamingProcessor {
+             let mime_type = &img.mime_type;
+             let data = &img.data;
+             if !data.is_empty() {
+-                let markdown_img = format!("![image](data:{};base64,{})", mime_type, data);
++                let prefix = if self.text_builder.is_empty() || self.text_builder.ends_with("\n\n")
++                {
++                    ""
++                } else if self.text_builder.ends_with('\n') {
++                    "\n"
++                } else {
++                    "\n\n"
++                };
++                let markdown_img =
++                    format!("{}![image](data:{};base64,{})\n\n", prefix, mime_type, data);
+                 self.text_builder.push_str(&markdown_img);
+                 self.flush_text();
+             }
 diff --git a/src-tauri/src/proxy/mappers/claude/streaming.rs b/src-tauri/src/proxy/mappers/claude/streaming.rs
-index 05c6ffb3..70198345 100644
+index 05c6ffb3..e3032caa 100644
 --- a/src-tauri/src/proxy/mappers/claude/streaming.rs
 +++ b/src-tauri/src/proxy/mappers/claude/streaming.rs
 @@ -445,6 +445,44 @@ impl StreamingState {
@@ -1279,6 +1297,15 @@ index 05c6ffb3..70198345 100644
              }
  
              chunks.extend(self.process_function_call(fc, signature));
+@@ -589,7 +608,7 @@ impl<'a> PartProcessor<'a> {
+             let mime_type = &img.mime_type;
+             let data = &img.data;
+             if !data.is_empty() {
+-                let markdown_img = format!("![image](data:{};base64,{})", mime_type, data);
++                let markdown_img = format!("\n\n![image](data:{};base64,{})\n\n", mime_type, data);
+                 chunks.extend(self.process_text(&markdown_img, None));
+             }
+         }
 @@ -601,28 +620,9 @@ impl<'a> PartProcessor<'a> {
      fn process_thinking(&mut self, text: &str, signature: Option<String>) -> Vec<Bytes> {
          let mut chunks = Vec::new();
@@ -1691,11 +1718,102 @@ index a15b2272..00d249e0 100644
      }
  
      #[test]
+diff --git a/src-tauri/src/proxy/mappers/openai/response.rs b/src-tauri/src/proxy/mappers/openai/response.rs
+index c9591050..53a3ec0a 100644
+--- a/src-tauri/src/proxy/mappers/openai/response.rs
++++ b/src-tauri/src/proxy/mappers/openai/response.rs
+@@ -136,8 +136,18 @@ pub fn transform_openai_response(
+                             .unwrap_or("image/png");
+                         let data = img.get("data").and_then(|v| v.as_str()).unwrap_or("");
+                         if !data.is_empty() {
+-                            content_out
+-                                .push_str(&format!("![image](data:{};base64,{})", mime_type, data));
++                            let prefix = if content_out.is_empty() || content_out.ends_with("\n\n")
++                            {
++                                ""
++                            } else if content_out.ends_with('\n') {
++                                "\n"
++                            } else {
++                                "\n\n"
++                            };
++                            content_out.push_str(&format!(
++                                "{}![image](data:{};base64,{})\n\n",
++                                prefix, mime_type, data
++                            ));
+                         }
+                     }
+ 
 diff --git a/src-tauri/src/proxy/mappers/openai/streaming.rs b/src-tauri/src/proxy/mappers/openai/streaming.rs
-index 020af7e4..2c109c2d 100644
+index 020af7e4..b3087181 100644
 --- a/src-tauri/src/proxy/mappers/openai/streaming.rs
 +++ b/src-tauri/src/proxy/mappers/openai/streaming.rs
-@@ -574,6 +574,9 @@ where
+@@ -92,6 +92,7 @@ where
+     let stream = async_stream::stream! {
+         let mut emitted_tool_calls = std::collections::HashSet::new();
+         let mut final_usage: Option<super::models::OpenAIUsage> = None;
++        let mut has_emitted_finish_reason = false;
+         let mut error_occurred = false;
+         let mut tool_call_index = 0;
+         let mut thinking_acc = if let Some(ref a) = causal_anchor {
+@@ -154,7 +155,14 @@ where
+                                                                 let mime_type = img.get("mimeType").and_then(|v| v.as_str()).unwrap_or("image/png");
+                                                                 let data = img.get("data").and_then(|v| v.as_str()).unwrap_or("");
+                                                                 if !data.is_empty() {
+-                                                                    content_out.push_str(&format!("![image](data:{};base64,{})", mime_type, data));
++                                                                    let prefix = if content_out.is_empty() || content_out.ends_with("\n\n") {
++                                                                        ""
++                                                                    } else if content_out.ends_with('\n') {
++                                                                        "\n"
++                                                                    } else {
++                                                                        "\n\n"
++                                                                    };
++                                                                    content_out.push_str(&format!("{}![image](data:{};base64,{})\n\n", prefix, mime_type, data));
+                                                                 }
+                                                             }
+                                                             if let Some(func_call) = part.get("functionCall") {
+@@ -295,6 +303,7 @@ where
+                                                             }]
+                                                         });
+                                                         if finish_reason.is_some() {
++                                                            has_emitted_finish_reason = true;
+                                                             if !include_usage {
+                                                                 if let Some(ref usage) = final_usage {
+                                                                     openai_chunk["usage"] = serde_json::to_value(usage).unwrap();
+@@ -352,6 +361,33 @@ where
+ 
+         thinking_acc.commit(&session_id);
+         if !error_occurred {
++            // [GUARANTEED TERMINAL STOP CHUNK]
++            // OpenAI streaming specification mandates that before `data: [DONE]`, the stream
++            // must emit a chunk containing `choices[0].finish_reason` (either "stop" or "tool_calls").
++            // If upstream Gemini closed after emitting usage metadata or candidates without finishReason,
++            // synthesize a clean terminal finish chunk so downstream clients (such as Cursor/cursor2plus)
++            // cleanly transition state machine to turnEnded / completed.
++            if !has_emitted_finish_reason {
++                let mut stop_chunk = json!({
++                    "id": &stream_id,
++                    "object": "chat.completion.chunk",
++                    "created": created_ts,
++                    "model": &model,
++                    "choices": [{
++                        "index": 0,
++                        "delta": {},
++                        "finish_reason": if !emitted_tool_calls.is_empty() { "tool_calls" } else { "stop" }
++                    }]
++                });
++                if !include_usage {
++                    if let Some(ref usage) = final_usage {
++                        stop_chunk["usage"] = serde_json::to_value(usage).unwrap();
++                    }
++                    final_usage = None;
++                }
++                yield Ok::<Bytes, String>(Bytes::from(format!("data: {}\n\n", serde_json::to_string(&stop_chunk).unwrap_or_default())));
++            }
++
+             // [CRITICAL FIX #3455] Only emit standalone usage chunk with empty choices if client explicitly
+             // requested stream_options.include_usage: true. Emitting choices: [] unconditionally causes Python
+             // OpenAI SDK and autonomous agents (Hermes, etc.) to crash with `IndexError: list index out of range`!
+@@ -574,6 +610,9 @@ where
          let mut reasoning_open = false;
          let mut reasoning_item_seq: u32 = 0;
          let mut active_reasoning_item_id = String::new();
@@ -1705,7 +1823,7 @@ index 020af7e4..2c109c2d 100644
  
          let mut emitted_tool_calls = std::collections::HashSet::new();
          let mut accumulated_text = String::new();
-@@ -623,11 +626,100 @@ where
+@@ -623,11 +662,100 @@ where
                                                      for part in parts {
                                                          thinking_acc.ingest_part(part);
                                                          let is_thought = part.get("thought").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -1808,7 +1926,7 @@ index 020af7e4..2c109c2d 100644
                                                              let text_done = json!({
                                                                  "type": "response.reasoning_summary_text.done",
                                                                  "item_id": &active_reasoning_item_id,
-@@ -673,76 +765,69 @@ where
+@@ -673,76 +801,69 @@ where
                                                              reasoning_open = false;
                                                          }
  
@@ -1946,7 +2064,7 @@ index 020af7e4..2c109c2d 100644
                                                              }
                                                          }
                                                          if let Some(sig) = part.get("thoughtSignature").or(part.get("thought_signature")).and_then(|s| s.as_str()) {
-@@ -975,18 +1060,46 @@ where
+@@ -975,18 +1096,46 @@ where
              final_outputs_map.insert(reasoning_output_index, reasoning_item);
          }
  
@@ -1997,7 +2115,7 @@ index 020af7e4..2c109c2d 100644
          }
  
          if message_item_emitted {
-@@ -1408,6 +1521,9 @@ mod tests {
+@@ -1408,6 +1557,9 @@ mod tests {
  
      #[tokio::test]
      async fn test_codex_final_message_is_promoted_and_persisted() {
@@ -2007,7 +2125,7 @@ index 020af7e4..2c109c2d 100644
          let (_, events) = collect_codex_stream(vec![
              json!({"candidates": [{"content": {"parts": [{"text": "Checking ", "thought": true}]}}]}),
              json!({"candidates": [{"content": {"parts": [{"text": "results.", "thought": true}]}}]}),
-@@ -1498,6 +1614,9 @@ mod tests {
+@@ -1498,6 +1650,9 @@ mod tests {
  
      #[tokio::test]
      async fn test_codex_late_thought_does_not_mix_into_final_answer() {
@@ -2017,7 +2135,7 @@ index 020af7e4..2c109c2d 100644
          let (raw, events) = collect_codex_stream(vec![
              json!({
                  "candidates": [{
-@@ -1535,6 +1654,9 @@ mod tests {
+@@ -1535,6 +1690,9 @@ mod tests {
  
      #[tokio::test]
      async fn test_codex_tool_round_message_stays_commentary() {
@@ -2027,7 +2145,7 @@ index 020af7e4..2c109c2d 100644
          let (_, events) = collect_codex_stream(vec![
              json!({
                  "candidates": [{
-@@ -1594,6 +1716,279 @@ mod tests {
+@@ -1594,6 +1752,279 @@ mod tests {
          assert_eq!(terminal["response"]["error"]["code"], "empty_response");
      }
  
@@ -2307,6 +2425,147 @@ index 020af7e4..2c109c2d 100644
      #[tokio::test]
      async fn test_openai_streaming_usage_only_at_end() {
          // Chunk 1: Partial content, no usage
+@@ -1963,4 +2394,140 @@ mod tests {
+         );
+         assert_eq!(final_finish_reason, Some("stop".to_string()));
+     }
++
++    #[tokio::test]
++    async fn test_openai_streaming_vertical_image_formatting() {
++        // Simulates Gemini 3.1 Flash Image returning draft sketch and final render
++        let chunk_json = json!({
++            "candidates": [{
++                "content": {
++                    "parts": [
++                        { "text": "Draft and final render:" },
++                        {
++                            "inlineData": {
++                                "mimeType": "image/png",
++                                "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
++                            }
++                        },
++                        {
++                            "inlineData": {
++                                "mimeType": "image/png",
++                                "data": "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mNk+M/wHwwZGBgYGAAAA/gCBfVb3BwAAAAASUVORK5CYII="
++                            }
++                        }
++                    ]
++                },
++                "finishReason": "STOP"
++            }]
++        });
++
++        let items: Vec<Result<Bytes, reqwest::Error>> =
++            vec![Ok(Bytes::from(format!("data: {}\n\n", chunk_json)))];
++
++        let gemini_stream = Box::pin(stream::iter(items));
++
++        let mut openai_stream = create_openai_sse_stream(
++            gemini_stream,
++            "gemini-3.1-flash-image".to_string(),
++            "test-image-session".to_string(),
++            0,
++            None,
++            false,
++        );
++
++        let mut all_content = String::new();
++        while let Some(result) = openai_stream.next().await {
++            if let Ok(bytes) = result {
++                let s = String::from_utf8_lossy(&bytes).to_string();
++                for line in s.lines() {
++                    if line.starts_with("data: ") && !line.contains("[DONE]") {
++                        let json_str = line.trim_start_matches("data: ").trim();
++                        if let Ok(json) = serde_json::from_str::<Value>(json_str) {
++                            if let Some(choices) = json.get("choices").and_then(|c| c.as_array()) {
++                                if let Some(choice) = choices.first() {
++                                    if let Some(delta) = choice.get("delta") {
++                                        if let Some(c) =
++                                            delta.get("content").and_then(|c| c.as_str())
++                                        {
++                                            all_content.push_str(c);
++                                        }
++                                    }
++                                }
++                            }
++                        }
++                    }
++                }
++            }
++        }
++
++        // Verify vertical block formatting:
++        // 1. Text followed by double newline before first image
++        assert!(all_content.contains("Draft and final render:\n\n![image]("));
++        // 2. First image followed by double newline before second image (vertical block separation)
++        assert!(all_content.contains(")\n\n![image]("));
++        // 3. Second image ends with double newline
++        assert!(all_content.ends_with("\n\n"));
++    }
++
++    #[tokio::test]
++    async fn test_openai_streaming_guaranteed_terminal_stop_chunk() {
++        // Chunk 1: candidate content without finishReason
++        let chunk1_json = json!({
++            "candidates": [{
++                "content": {
++                    "parts": [{ "text": "Rendering complete." }]
++                }
++            }]
++        });
++
++        // Chunk 2: usageMetadata only (no candidate, no finishReason)
++        let chunk2_json = json!({
++            "usageMetadata": {
++                "promptTokenCount": 20,
++                "candidatesTokenCount": 10,
++                "totalTokenCount": 30
++            }
++        });
++
++        let items: Vec<Result<Bytes, reqwest::Error>> = vec![
++            Ok(Bytes::from(format!("data: {}\n\n", chunk1_json))),
++            Ok(Bytes::from(format!("data: {}\n\n", chunk2_json))),
++        ];
++
++        let gemini_stream = Box::pin(stream::iter(items));
++
++        let mut openai_stream = create_openai_sse_stream(
++            gemini_stream,
++            "gemini-3.1-flash-image".to_string(),
++            "test-terminal-stop-session".to_string(),
++            0,
++            None,
++            false,
++        );
++
++        let mut chunks = Vec::new();
++        while let Some(result) = openai_stream.next().await {
++            if let Ok(bytes) = result {
++                let s = String::from_utf8_lossy(&bytes).to_string();
++                for line in s.lines() {
++                    if line.starts_with("data: ") {
++                        chunks.push(line.to_string());
++                    }
++                }
++            }
++        }
++
++        // The penultimate data chunk (right before data: [DONE]) must guarantee finish_reason: "stop"
++        assert!(chunks.len() >= 3);
++        assert_eq!(chunks.last().unwrap(), "data: [DONE]");
++
++        let terminal_chunk_str = &chunks[chunks.len() - 2];
++        let terminal_json: Value =
++            serde_json::from_str(terminal_chunk_str.trim_start_matches("data: ").trim()).unwrap();
++
++        let choice = &terminal_json["choices"][0];
++        assert_eq!(choice["finish_reason"], "stop");
++        // Verify usage was attached to the terminal finish chunk
++        assert_eq!(terminal_json["usage"]["total_tokens"], 30);
++    }
+ }
 diff --git a/src-tauri/src/proxy/mod.rs b/src-tauri/src/proxy/mod.rs
 index 7f92f387..e7c6fbba 100644
 --- a/src-tauri/src/proxy/mod.rs

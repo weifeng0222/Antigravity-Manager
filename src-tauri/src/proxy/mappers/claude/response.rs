@@ -245,7 +245,16 @@ impl NonStreamingProcessor {
             let mime_type = &img.mime_type;
             let data = &img.data;
             if !data.is_empty() {
-                let markdown_img = format!("![image](data:{};base64,{})", mime_type, data);
+                let prefix = if self.text_builder.is_empty() || self.text_builder.ends_with("\n\n")
+                {
+                    ""
+                } else if self.text_builder.ends_with('\n') {
+                    "\n"
+                } else {
+                    "\n\n"
+                };
+                let markdown_img =
+                    format!("{}![image](data:{};base64,{})\n\n", prefix, mime_type, data);
                 self.text_builder.push_str(&markdown_img);
                 self.flush_text();
             }

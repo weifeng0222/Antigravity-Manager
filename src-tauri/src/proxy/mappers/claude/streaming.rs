@@ -608,7 +608,7 @@ impl<'a> PartProcessor<'a> {
             let mime_type = &img.mime_type;
             let data = &img.data;
             if !data.is_empty() {
-                let markdown_img = format!("![image](data:{};base64,{})", mime_type, data);
+                let markdown_img = format!("\n\n![image](data:{};base64,{})\n\n", mime_type, data);
                 chunks.extend(self.process_text(&markdown_img, None));
             }
         }
