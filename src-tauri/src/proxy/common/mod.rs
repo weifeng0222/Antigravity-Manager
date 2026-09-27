@@ -4,6 +4,7 @@
 // pub mod rate_limiter;
 pub mod client_adapter;
 pub mod client_adapters;
+pub mod cursor_cleaner;
 pub mod json_schema;
 pub mod model_mapping;
 pub mod schema_cache;

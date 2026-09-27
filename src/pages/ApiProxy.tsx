@@ -772,6 +772,48 @@ export default function ApiProxy() {
         saveConfig(newConfig);
     };
 
+    const handleToggleCursorCleaner = async (enabled: boolean) => {
+        if (!appConfig) return;
+        const newConfig = {
+            ...appConfig,
+            proxy: {
+                ...appConfig.proxy,
+                cursor_cleaner: enabled
+            }
+        };
+        await saveConfig(newConfig);
+        if (enabled) {
+            showToast(t('proxy.config.experimental.cursor_cleaner_started', { defaultValue: 'Cursor 纯净流已启动' }), 'success');
+        } else {
+            showToast(t('proxy.config.experimental.cursor_cleaner_stopped', { defaultValue: 'Cursor 纯净流已停止' }), 'success');
+        }
+    };
+
+    const handleToggleThinkingStore = async (enabled: boolean) => {
+        if (!appConfig) return;
+        const newConfig = {
+            ...appConfig,
+            proxy: {
+                ...appConfig.proxy,
+                experimental: {
+                    ...(appConfig.proxy.experimental || {
+                        enable_usage_scaling: true,
+                        context_compression_threshold_l1: 0.4,
+                        context_compression_threshold_l2: 0.55,
+                        context_compression_threshold_l3: 0.7
+                    }),
+                    thinking_store_enabled: enabled
+                }
+            }
+        };
+        await saveConfig(newConfig);
+        if (enabled) {
+            showToast(t('proxy.config.thinking_budget.store_enabled_started', { defaultValue: '服务端思考块与签名回填已启动' }), 'success');
+        } else {
+            showToast(t('proxy.config.thinking_budget.store_enabled_stopped', { defaultValue: '服务端思考块与签名回填已停止' }), 'success');
+        }
+    };
+
     const updateCircuitBreakerConfig = (newBreakerConfig: CircuitBreakerConfig) => {
         if (!appConfig) return;
         const newConfig = {
@@ -2164,9 +2206,7 @@ print(response.choices[0].message.content)`;
                                     onChange={(tbConfig) => updateProxyConfig({ thinking_budget: tbConfig })}
                                     onSave={handleSaveProxySettings}
                                     thinkingStoreEnabled={appConfig.proxy.experimental?.thinking_store_enabled !== false}
-                                    onThinkingStoreChange={(enabled) =>
-                                        updateExperimentalConfig({ thinking_store_enabled: enabled })
-                                    }
+                                    onThinkingStoreChange={handleToggleThinkingStore}
                                     thinkingMaxMemoryTurns={appConfig.proxy.experimental?.thinking_max_memory_turns ?? 600}
                                     onThinkingMaxMemoryTurnsChange={(turns: number) =>
                                         updateExperimentalConfig({ thinking_max_memory_turns: turns })
@@ -2602,6 +2642,36 @@ print(response.choices[0].message.content)`;
                                 icon={<Sparkles size={18} className="text-purple-500" />}
                             >
                                 <div className="space-y-4">
+                                    {/* Cursor 纯净流与点号清洗 */}
+                                    <div
+                                        className="flex items-center justify-between p-4 bg-gray-50 dark:bg-base-200 rounded-xl border border-gray-100 dark:border-base-300 cursor-pointer hover:bg-gray-100/70 dark:hover:bg-base-300/50 transition-colors"
+                                        onClick={() => handleToggleCursorCleaner(!(appConfig.proxy.cursor_cleaner ?? false))}
+                                    >
+                                        <div className="space-y-1 select-none">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-sm font-bold text-gray-900 dark:text-base-content">
+                                                    {t('proxy.config.experimental.cursor_cleaner_label', { defaultValue: 'Cursor 纯净流与点号清洗' })}
+                                                </span>
+                                                <div onClick={(e) => e.stopPropagation()}>
+                                                    <HelpTooltip text={t('proxy.config.experimental.cursor_cleaner_desc', { defaultValue: '专为 Cursor 设计，实时拦截过滤 SSE 流中的连续点号瀑布、行动过渡句（自动折叠进思考抽屉）与空心跳' })} />
+                                                </div>
+                                                <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/30 text-[10px] text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-200 dark:border-emerald-800">
+                                                    Cursor / Claude / OpenAI
+                                                </span>
+                                            </div>
+                                            <p className="text-[10px] text-gray-500 dark:text-gray-400 max-w-lg">
+                                                {t('proxy.config.experimental.cursor_cleaner_desc', { defaultValue: '专为 Cursor 设计，实时拦截过滤 SSE 流中的连续点号瀑布、行动过渡句（自动折叠进思考抽屉）与空心跳' })}
+                                            </p>
+                                        </div>
+                                        <input
+                                            type="checkbox"
+                                            className="toggle toggle-sm bg-gray-200 dark:bg-base-300 border-gray-300 dark:border-base-300 checked:bg-blue-600 checked:border-blue-600 cursor-pointer"
+                                            checked={appConfig.proxy.cursor_cleaner ?? false}
+                                            onClick={(e) => e.stopPropagation()}
+                                            onChange={(e) => handleToggleCursorCleaner(e.target.checked)}
+                                        />
+                                    </div>
+
                                     <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-base-200 rounded-xl border border-gray-100 dark:border-base-300">
                                         <div className="space-y-1">
                                             <div className="flex items-center gap-2">
