@@ -1543,6 +1543,37 @@ pub async fn handle_messages(
 
                         // 判断客户端期望的格式
                         if client_wants_stream {
+                            let combined_stream: std::pin::Pin<
+                                Box<
+                                    dyn futures::Stream<Item = Result<Bytes, std::io::Error>>
+                                        + Send,
+                                >,
+                            > = if crate::proxy::is_cursor_cleaner_enabled() {
+                                Box::pin(async_stream::stream! {
+                                    let mut cleaner = crate::proxy::common::cursor_cleaner::CursorStreamCleaner::new();
+                                    let mut s = Box::pin(combined_stream);
+                                    while let Some(item) = s.next().await {
+                                        match item {
+                                            Ok(b) => {
+                                                let text = String::from_utf8_lossy(&b);
+                                                let cleaned = cleaner.clean_chunk(&text);
+                                                if !cleaned.is_empty() {
+                                                    yield Ok(Bytes::from(cleaned));
+                                                }
+                                            }
+                                            Err(e) => yield Err(e),
+                                        }
+                                    }
+                                    if let Some(remaining) = cleaner.flush() {
+                                        if !remaining.is_empty() {
+                                            yield Ok(Bytes::from(remaining));
+                                        }
+                                    }
+                                })
+                            } else {
+                                Box::pin(combined_stream)
+                            };
+
                             // 客户端本就要 Stream，直接返回 SSE
                             return Response::builder()
                                 .status(StatusCode::OK)

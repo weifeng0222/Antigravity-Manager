@@ -27,6 +27,7 @@ export interface ProxyConfig {
     global_system_prompt?: GlobalSystemPromptConfig;
     image_thinking_mode?: 'enabled' | 'disabled'; // [NEW] 图像思维模式开关
     only_raw_quota_models?: boolean; // [NEW] 是否只暴露真实配额模型
+    cursor_cleaner?: boolean; // [NEW] Cursor 纯净流与点号清洗开关
     proxy_pool?: ProxyPoolConfig;
 }
 

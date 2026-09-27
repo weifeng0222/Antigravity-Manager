@@ -147,6 +147,33 @@ pub fn update_image_thinking_mode(mode: Option<String>) {
 }
 
 // ============================================================================
+// 全局 Cursor 纯净流与点号清洗配置存储
+// ============================================================================
+static GLOBAL_CURSOR_CLEANER: OnceLock<RwLock<bool>> = OnceLock::new();
+
+pub fn is_cursor_cleaner_enabled() -> bool {
+    GLOBAL_CURSOR_CLEANER
+        .get()
+        .and_then(|lock| lock.read().ok())
+        .map(|v| *v)
+        .unwrap_or(false)
+}
+
+pub fn update_cursor_cleaner(enabled: bool) {
+    if let Some(lock) = GLOBAL_CURSOR_CLEANER.get() {
+        if let Ok(mut cfg) = lock.write() {
+            if *cfg != enabled {
+                *cfg = enabled;
+                tracing::info!("[Cursor-Cleaner] Global config updated: {}", enabled);
+            }
+        }
+    } else {
+        let _ = GLOBAL_CURSOR_CLEANER.set(RwLock::new(enabled));
+        tracing::info!("[Cursor-Cleaner] Global config initialized: {}", enabled);
+    }
+}
+
+// ============================================================================
 // 全局压缩等级配置存储
 // ============================================================================
 static GLOBAL_COMPRESSION_LEVEL: OnceLock<RwLock<String>> = OnceLock::new();
@@ -929,6 +956,10 @@ pub struct ProxyConfig {
     #[serde(default)]
     pub only_raw_quota_models: bool,
 
+    /// Cursor 纯净流与点号清洗引擎开关
+    #[serde(default)]
+    pub cursor_cleaner: bool,
+
     /// z.ai provider configuration (Anthropic-compatible).
     #[serde(default)]
     pub zai: ZaiConfig,
@@ -1089,6 +1120,7 @@ impl Default for ProxyConfig {
             debug_logging: DebugLoggingConfig::default(),
             upstream_proxy: UpstreamProxyConfig::default(),
             only_raw_quota_models: false,
+            cursor_cleaner: false,
             zai: ZaiConfig::default(),
             scheduling: crate::proxy::sticky_config::StickySessionConfig::default(),
             experimental: ExperimentalConfig::default(),

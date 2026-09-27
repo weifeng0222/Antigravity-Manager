@@ -445,6 +445,44 @@ impl StreamingState {
         self.trailing_signature.is_some()
     }
 
+    /// 安全冲刷暂存的 trailing signature：
+    /// - 若当前处于 Thinking 块中，直接将签名存入当前块等待 end_block 发送 signature_delta；
+    /// - 若尚未发送任何块（block_index == 0 && !has_content），通过 start_block + end_block 规范发送完整 Thinking 块；
+    /// - 若已发送过非 Thinking 块，仅缓存签名而不插入非法后置 Thinking 块。
+    pub fn flush_trailing_signature(&mut self) -> Vec<Bytes> {
+        let mut chunks = Vec::new();
+        if let Some(trailing_sig) = self.trailing_signature.take() {
+            if self.block_type == BlockType::Thinking {
+                self.signatures.store(Some(trailing_sig));
+            } else if self.block_index == 0 && !self.has_content {
+                chunks.extend(self.start_block(
+                    BlockType::Thinking,
+                    json!({ "type": "thinking", "thinking": "" }),
+                ));
+                chunks.push(self.emit_delta("thinking_delta", json!({ "thinking": "" })));
+                self.signatures.store(Some(trailing_sig));
+                chunks.extend(self.end_block());
+            } else {
+                self.signatures.store(Some(trailing_sig));
+            }
+        }
+        chunks
+    }
+
+    /// 缓存签名到全局与会话级 SignatureCache
+    pub fn cache_signature(&self, sig: &str) {
+        if let Some(model) = &self.model_name {
+            SignatureCache::global().cache_thinking_family(sig.to_string(), model.clone());
+        }
+        if let Some(session_id) = &self.session_id {
+            SignatureCache::global().cache_session_signature(
+                session_id,
+                sig.to_string(),
+                self.message_count,
+            );
+        }
+    }
+
     /// 处理 SSE 解析错误，实现优雅降级
     ///
     /// 当 SSE stream 中发生解析错误时:
@@ -560,28 +598,9 @@ impl<'a> PartProcessor<'a> {
 
         // 1. FunctionCall 处理
         if let Some(fc) = &part.function_call {
-            // 先处理 trailingSignature (B4/C3 场景)
+            // 先安全处理 trailingSignature (B4/C3 场景)
             if self.state.has_trailing_signature() {
-                chunks.extend(self.state.end_block());
-                if let Some(trailing_sig) = self.state.trailing_signature.take() {
-                    chunks.push(self.state.emit(
-                        "content_block_start",
-                        json!({
-                            "type": "content_block_start",
-                            "index": self.state.current_block_index(),
-                            "content_block": { "type": "thinking", "thinking": "" }
-                        }),
-                    ));
-                    chunks.push(
-                        self.state
-                            .emit_delta("thinking_delta", json!({ "thinking": "" })),
-                    );
-                    chunks.push(
-                        self.state
-                            .emit_delta("signature_delta", json!({ "signature": trailing_sig })),
-                    );
-                    chunks.extend(self.state.end_block());
-                }
+                chunks.extend(self.state.flush_trailing_signature());
             }
 
             chunks.extend(self.process_function_call(fc, signature));
@@ -618,28 +637,9 @@ impl<'a> PartProcessor<'a> {
     fn process_thinking(&mut self, text: &str, signature: Option<String>) -> Vec<Bytes> {
         let mut chunks = Vec::new();
 
-        // 处理之前的 trailingSignature
-        if self.state.has_trailing_signature() {
-            chunks.extend(self.state.end_block());
-            if let Some(trailing_sig) = self.state.trailing_signature.take() {
-                chunks.push(self.state.emit(
-                    "content_block_start",
-                    json!({
-                        "type": "content_block_start",
-                        "index": self.state.current_block_index(),
-                        "content_block": { "type": "thinking", "thinking": "" }
-                    }),
-                ));
-                chunks.push(
-                    self.state
-                        .emit_delta("thinking_delta", json!({ "thinking": "" })),
-                );
-                chunks.push(
-                    self.state
-                        .emit_delta("signature_delta", json!({ "signature": trailing_sig })),
-                );
-                chunks.extend(self.state.end_block());
-            }
+        // 若之前暂存了 trailingSignature，直接合入当前即将开启/继续的 Thinking 块签名槽位
+        if let Some(trailing_sig) = self.state.trailing_signature.take() {
+            self.state.store_signature(Some(trailing_sig));
         }
 
         // 开始或继续 thinking 块
@@ -714,46 +714,37 @@ impl<'a> PartProcessor<'a> {
     fn process_text(&mut self, text: &str, signature: Option<String>) -> Vec<Bytes> {
         let mut chunks = Vec::new();
 
-        // 空 text 带签名 - 暂存
+        if let Some(ref sig) = signature {
+            self.state.cache_signature(sig);
+        }
+
+        // 空 text 带签名 - 优先附加到当前打开的 Thinking 块，否则按状态安全暂存
         if text.is_empty() {
-            if signature.is_some() {
-                self.state.set_trailing_signature(signature);
+            if let Some(sig) = signature {
+                if self.state.current_block_type() == BlockType::Thinking {
+                    self.state.store_signature(Some(sig));
+                } else if self.state.block_index == 0 && !self.state.has_content {
+                    self.state.set_trailing_signature(Some(sig));
+                } else {
+                    self.state.store_signature(Some(sig));
+                }
             }
             return chunks;
+        }
+
+        // 先安全冲刷之前的 trailingSignature（必须在设置 has_content = true 之前）
+        if self.state.has_trailing_signature() {
+            chunks.extend(self.state.flush_trailing_signature());
         }
 
         // [FIX #859] Mark that we have received actual content (text)
         self.state.has_content = true;
 
-        // 处理之前的 trailingSignature
-        if self.state.has_trailing_signature() {
-            chunks.extend(self.state.end_block());
-            if let Some(trailing_sig) = self.state.trailing_signature.take() {
-                chunks.push(self.state.emit(
-                    "content_block_start",
-                    json!({
-                        "type": "content_block_start",
-                        "index": self.state.current_block_index(),
-                        "content_block": { "type": "thinking", "thinking": "" }
-                    }),
-                ));
-                chunks.push(
-                    self.state
-                        .emit_delta("thinking_delta", json!({ "thinking": "" })),
-                );
-                chunks.push(
-                    self.state
-                        .emit_delta("signature_delta", json!({ "signature": trailing_sig })),
-                );
-                chunks.extend(self.state.end_block());
-            }
-        }
-
         // 非空 text 带签名 - 立即处理
         if signature.is_some() {
             // [FIX] 为保护签名, 签名所在的 Text 块直接发送
             // 注意: 不得在此开启 thinking 块, 因为之前可能已有非 thinking 内容。
-            // 这种情况下, 我们只需确签被缓存在状态中。
+            // 若当前正处于 Thinking 块中，先将签名存入以便 start_block(Text) 调用 end_block() 时一并写出 signature_delta。
             self.state.store_signature(signature);
 
             chunks.extend(
@@ -1541,5 +1532,112 @@ mod tests {
         assert!(output.contains(r#""name":"Read""#));
         assert!(!output.contains("text_delta"));
         assert!(state.used_tool);
+    }
+
+    #[test]
+    fn test_trailing_signature_before_tool_use_properly_closes_thinking_block() {
+        let mut state = StreamingState::new();
+        let mut processor = PartProcessor::new(&mut state);
+
+        // 1. Empty text part with signature (sets trailing_signature when no block is open)
+        let sig_part = GeminiPart {
+            text: Some(String::new()),
+            function_call: None,
+            inline_data: None,
+            thought: None,
+            thought_signature: Some("sig_123".to_string()),
+            function_response: None,
+        };
+        let chunks1 = processor.process(&sig_part);
+        assert!(chunks1.is_empty());
+
+        // 2. FunctionCall part follows
+        let fc_part = GeminiPart {
+            text: None,
+            function_call: Some(FunctionCall {
+                name: "WebSearch".to_string(),
+                args: Some(json!({"query": "rust"})),
+                id: Some("call_ws_1".to_string()),
+            }),
+            inline_data: None,
+            thought: None,
+            thought_signature: None,
+            function_response: None,
+        };
+        let chunks2 = processor.process(&fc_part);
+        let output = chunks_to_string(&chunks2);
+
+        // Index 0 must be thinking block properly started AND stopped with signature_delta
+        assert!(
+            output.contains(r#""type":"thinking""#) && output.contains(r#""index":0"#),
+            "output={}",
+            output
+        );
+        assert!(
+            output.contains(r#""type":"signature_delta""#)
+                && output.contains(r#""signature":"sig_123""#),
+            "output={}",
+            output
+        );
+        // Index 1 must be the tool_use block (no index collision with index 0)
+        assert!(
+            output.contains(r#""index":1"#) && output.contains(r#""name":"WebSearch""#),
+            "output={}",
+            output
+        );
+    }
+
+    #[test]
+    fn test_empty_text_signature_attaches_to_open_thinking_block() {
+        let mut state = StreamingState::new();
+        let mut processor = PartProcessor::new(&mut state);
+
+        // 1. Thinking part without signature
+        let think_part = GeminiPart {
+            text: Some("Thinking about the problem...".to_string()),
+            function_call: None,
+            inline_data: None,
+            thought: Some(true),
+            thought_signature: None,
+            function_response: None,
+        };
+        let mut all_chunks = processor.process(&think_part);
+
+        // 2. Empty text part carrying the signature
+        let sig_part = GeminiPart {
+            text: Some(String::new()),
+            function_call: None,
+            inline_data: None,
+            thought: None,
+            thought_signature: Some("sig_456".to_string()),
+            function_response: None,
+        };
+        all_chunks.extend(processor.process(&sig_part));
+
+        // 3. Normal text part
+        let text_part = GeminiPart {
+            text: Some("Here is the answer.".to_string()),
+            function_call: None,
+            inline_data: None,
+            thought: None,
+            thought_signature: None,
+            function_response: None,
+        };
+        all_chunks.extend(processor.process(&text_part));
+        all_chunks.extend(state.emit_finish(Some("STOP"), None));
+
+        let output = chunks_to_string(&all_chunks);
+        // Thinking block at index 0 gets sig_456 and closes cleanly before text block at index 1
+        assert!(
+            output.contains(r#""type":"signature_delta""#)
+                && output.contains(r#""signature":"sig_456""#),
+            "output={}",
+            output
+        );
+        assert!(
+            output.contains(r#""index":1"#) && output.contains(r#"Here is the answer."#),
+            "output={}",
+            output
+        );
     }
 }
