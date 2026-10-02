@@ -1,8 +1,8 @@
 diff --git a/.github/workflows/release.yml b/.github/workflows/release.yml
-index 674055e0..06b3d5e5 100644
+index 3d381afc..42becf27 100644
 --- a/.github/workflows/release.yml
 +++ b/.github/workflows/release.yml
-@@ -395,22 +395,6 @@ jobs:
+@@ -447,22 +447,6 @@ jobs:
            prerelease: ${{ needs.verify-release-target.outputs.is_prerelease == 'true' }}
            makeLatest: ${{ needs.verify-release-target.outputs.is_prerelease == 'true' && 'false' || 'legacy' }}
  
@@ -34,7 +34,7 @@ index 00000000..5ed0b5af
 +allowBuilds:
 +  esbuild: true
 diff --git a/src-tauri/Cargo.lock b/src-tauri/Cargo.lock
-index 5fc7155e..3933c9d0 100644
+index 5997c511..b04a2a2d 100644
 --- a/src-tauri/Cargo.lock
 +++ b/src-tauri/Cargo.lock
 @@ -786,6 +786,12 @@ dependencies = [
@@ -118,7 +118,7 @@ index 5fc7155e..3933c9d0 100644
  name = "zvariant"
  version = "5.9.2"
 diff --git a/src-tauri/Cargo.toml b/src-tauri/Cargo.toml
-index 7eb4f92e..ebdda671 100644
+index 7e38b52d..6d1e9575 100644
 --- a/src-tauri/Cargo.toml
 +++ b/src-tauri/Cargo.toml
 @@ -39,7 +39,7 @@ tokio = { version = "1", features = ["full"] }
@@ -131,156 +131,62 @@ index 7eb4f92e..ebdda671 100644
  
  # 反代服务依赖
 diff --git a/src-tauri/src/commands/mod.rs b/src-tauri/src/commands/mod.rs
-index fc2c09ad..15b4f71d 100644
+index 161821fd..7a8f33b6 100644
 --- a/src-tauri/src/commands/mod.rs
 +++ b/src-tauri/src/commands/mod.rs
-@@ -430,6 +430,7 @@ pub async fn save_config(
-     crate::proxy::update_thinking_budget_config(config.proxy.thinking_budget.clone());
+@@ -442,6 +442,7 @@ pub async fn save_config(
      crate::proxy::update_global_system_prompt_config(config.proxy.global_system_prompt.clone());
      crate::proxy::update_image_thinking_mode(config.proxy.image_thinking_mode.clone());
+     crate::proxy::update_multimodal_config(config.proxy.multimodal.clone());
 +    crate::proxy::update_cursor_cleaner(config.proxy.cursor_cleaner);
-     crate::proxy::config::update_global_compression_level(
-         config.proxy.experimental.compression_level.clone(),
-         config.proxy.experimental.enable_usage_scaling,
-@@ -453,72 +454,67 @@ pub async fn save_config(
-         monitor.set_capture_health_logs(config.proxy.capture_health_logs);
-     }
- 
--    // 热更新正在运行的服务
--    let instance_lock = proxy_state.instance.read().await;
--    if let Some(instance) = instance_lock.as_ref() {
--        // 更新模型映射
--        instance.axum_server.update_mapping(&config.proxy).await;
--        // 更新仅暴露真实配额模型开关
--        instance
--            .axum_server
--            .update_only_raw_quota_models(config.proxy.only_raw_quota_models)
--            .await;
--        // 更新上游代理
--        instance
--            .axum_server
--            .update_proxy(config.proxy.upstream_proxy.clone())
--            .await;
--        // 更新安全策略 (auth)
--        instance.axum_server.update_security(&config.proxy).await;
--        // 更新 z.ai 配置
--        instance.axum_server.update_zai(&config.proxy).await;
--        // 更新实验性配置
--        instance
--            .axum_server
--            .update_experimental(&config.proxy)
--            .await;
--        // 更新调试日志配置
--        instance
--            .axum_server
--            .update_debug_logging(&config.proxy)
--            .await;
--        // [NEW] 更新 User-Agent 配置
--        instance.axum_server.update_user_agent(&config.proxy).await;
--        // 更新 Thinking Budget 配置
--        crate::proxy::update_thinking_budget_config(config.proxy.thinking_budget.clone());
--        // [NEW] 更新全局系统提示词配置
--        crate::proxy::update_global_system_prompt_config(config.proxy.global_system_prompt.clone());
--        // [NEW] 更新全局图像思维模式配置
--        crate::proxy::update_image_thinking_mode(config.proxy.image_thinking_mode.clone());
--        // [NEW] 更新全局压缩等级配置
--        crate::proxy::config::update_global_compression_level(
--            config.proxy.experimental.compression_level.clone(),
--            config.proxy.experimental.enable_usage_scaling,
--        );
--        crate::proxy::config::update_global_audit_config(
--            config.proxy.experimental.payload_storage_mode.clone(),
--            config.proxy.experimental.log_retention_days,
--            config.proxy.experimental.thinking_store_enabled,
--            config.proxy.experimental.thinking_retention_days,
--            Some(config.proxy.experimental.thinking_max_memory_turns),
--        );
--        crate::proxy::config::update_global_thresholds(
--            config.proxy.experimental.context_compression_threshold_l1,
--            config.proxy.experimental.context_compression_threshold_l2,
--            config.proxy.experimental.context_compression_threshold_l3,
--        );
--        // 更新代理池配置
--        instance
--            .axum_server
--            .update_proxy_pool(config.proxy.proxy_pool.clone())
--            .await;
--        // 更新熔断配置
--        instance
--            .token_manager
--            .update_circuit_breaker_config(config.circuit_breaker.clone())
--            .await;
--        tracing::debug!("已同步热更新反代服务配置");
--    }
-+    // 热更新正在运行的服务（后台异步执行，不阻塞配置保存的即时响应）
-+    let proxy_state_clone = proxy_state.inner().clone();
-+    let config_clone = config.clone();
-+    tokio::spawn(async move {
-+        let instance_lock = proxy_state_clone.instance.read().await;
-+        if let Some(instance) = instance_lock.as_ref() {
-+            // 更新模型映射
-+            instance
-+                .axum_server
-+                .update_mapping(&config_clone.proxy)
-+                .await;
-+            // 更新仅暴露真实配额模型开关
-+            instance
-+                .axum_server
-+                .update_only_raw_quota_models(config_clone.proxy.only_raw_quota_models)
-+                .await;
-+            // 更新 Cursor 纯净流与点号清洗开关
-+            instance
-+                .axum_server
-+                .update_cursor_cleaner(config_clone.proxy.cursor_cleaner)
-+                .await;
-+            // 更新上游代理
-+            instance
-+                .axum_server
-+                .update_proxy(config_clone.proxy.upstream_proxy.clone())
-+                .await;
-+            // 更新安全策略 (auth)
-+            instance
-+                .axum_server
-+                .update_security(&config_clone.proxy)
-+                .await;
-+            // 更新 z.ai 配置
-+            instance.axum_server.update_zai(&config_clone.proxy).await;
-+            // 更新实验性配置
-+            instance
-+                .axum_server
-+                .update_experimental(&config_clone.proxy)
-+                .await;
-+            // 更新调试日志配置
-+            instance
-+                .axum_server
-+                .update_debug_logging(&config_clone.proxy)
-+                .await;
-+            // [NEW] 更新 User-Agent 配置
-+            instance
-+                .axum_server
-+                .update_user_agent(&config_clone.proxy)
-+                .await;
-+            // 更新代理池配置
-+            instance
-+                .axum_server
-+                .update_proxy_pool(config_clone.proxy.proxy_pool.clone())
-+                .await;
-+            // 更新熔断配置
-+            instance
-+                .token_manager
-+                .update_circuit_breaker_config(config_clone.circuit_breaker.clone())
-+                .await;
-+            tracing::debug!("已异步完成热更新反代服务配置");
-+        }
-+    });
- 
-     Ok(())
+     crate::proxy::config::update_global_audit_config(
+         config.proxy.experimental.payload_storage_mode.clone(),
+         config.proxy.experimental.log_retention_days,
+@@ -466,6 +467,11 @@ pub async fn save_config(
+             .axum_server
+             .update_only_raw_quota_models(config.proxy.only_raw_quota_models)
+             .await;
++        // 更新 Cursor 纯净流与点号清洗开关
++        instance
++            .axum_server
++            .update_cursor_cleaner(config.proxy.cursor_cleaner)
++            .await;
+         // 更新上游代理
+         instance
+             .axum_server
+@@ -1235,6 +1241,19 @@ pub async fn brew_upgrade_cask() -> Result<String, String> {
+     crate::modules::update_checker::brew_upgrade_cask().await
  }
+ 
++/// 检测本地是否存在 update_and_rebuild.sh 源码重构脚本
++#[tauri::command]
++pub async fn check_rebuild_available() -> Result<bool, String> {
++    Ok(crate::modules::update_checker::is_rebuild_script_available())
++}
++
++/// 触发本地源码拉取与一键重构 (update_and_rebuild.sh)
++#[tauri::command]
++pub async fn trigger_local_rebuild(channel: Option<String>) -> Result<String, String> {
++    modules::logger::log_info("收到前端触发的本地源码一键更新与重构请求");
++    crate::modules::update_checker::trigger_local_rebuild(channel).await
++}
++
+ /// 获取更新设置
+ #[tauri::command]
+ pub async fn get_update_settings() -> Result<crate::modules::update_checker::UpdateSettings, String>
 diff --git a/src-tauri/src/commands/proxy.rs b/src-tauri/src/commands/proxy.rs
-index 5c40b574..ad19e6c2 100644
+index 92196386..817a92a6 100644
 --- a/src-tauri/src/commands/proxy.rs
 +++ b/src-tauri/src/commands/proxy.rs
-@@ -314,6 +314,8 @@ pub async fn ensure_admin_server(
+@@ -5,7 +5,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
+ use std::sync::Arc;
+ use tauri::State;
+ use tokio::sync::RwLock;
+-use tokio::time::Duration;
+ 
+ /// 反代服务状态
+ #[derive(Debug, Clone, Serialize, Deserialize)]
+@@ -305,6 +304,8 @@ pub async fn ensure_admin_server(
  
      // [NEW] 初始化全局 Thinking Budget 配置
      crate::proxy::update_thinking_budget_config(config.thinking_budget.clone());
@@ -289,8 +195,21 @@ index 5c40b574..ad19e6c2 100644
      // [NEW] 初始化全局系统提示词配置
      crate::proxy::update_global_system_prompt_config(config.global_system_prompt.clone());
      // [NEW] 初始化全局图像思维模式配置
+diff --git a/src-tauri/src/lib.rs b/src-tauri/src/lib.rs
+index affc955d..42320120 100644
+--- a/src-tauri/src/lib.rs
++++ b/src-tauri/src/lib.rs
+@@ -701,6 +701,8 @@ pub fn run() {
+             commands::check_homebrew_installation,
+             commands::check_appimage_installation,
+             commands::brew_upgrade_cask,
++            commands::check_rebuild_available,
++            commands::trigger_local_rebuild,
+             commands::get_update_settings,
+             commands::save_update_settings,
+             commands::should_check_updates,
 diff --git a/src-tauri/src/modules/update_checker.rs b/src-tauri/src/modules/update_checker.rs
-index 49cc03ee..cc1f3eb9 100644
+index 49cc03ee..5ec6baac 100644
 --- a/src-tauri/src/modules/update_checker.rs
 +++ b/src-tauri/src/modules/update_checker.rs
 @@ -4,13 +4,13 @@ use serde::{Deserialize, Serialize};
@@ -342,6 +261,84 @@ index 49cc03ee..cc1f3eb9 100644
      let release_notes = format!(
          "New version detected via {}. Please check release page for details.",
          source_name
+@@ -709,6 +710,77 @@ pub async fn brew_upgrade_cask() -> Result<String, String> {
+     }
+ }
+ 
++/// Detect if local update_and_rebuild.sh script is available
++pub fn is_rebuild_script_available() -> bool {
++    get_rebuild_script_path().is_some()
++}
++
++/// Locate update_and_rebuild.sh in ~/Antigravity-Manager or current directory
++pub fn get_rebuild_script_path() -> Option<std::path::PathBuf> {
++    if let Some(home) = dirs::home_dir() {
++        let script = home
++            .join("Antigravity-Manager")
++            .join("update_and_rebuild.sh");
++        if script.exists() {
++            return Some(script);
++        }
++    }
++    if let Ok(cwd) = std::env::current_dir() {
++        let script = cwd.join("update_and_rebuild.sh");
++        if script.exists() {
++            return Some(script);
++        }
++    }
++    None
++}
++
++/// Execute `update_and_rebuild.sh [stable|beta]` via macOS Terminal to preserve live output and survive app quit
++#[cfg(target_os = "macos")]
++pub async fn trigger_local_rebuild(channel: Option<String>) -> Result<String, String> {
++    let script_path = get_rebuild_script_path()
++        .ok_or_else(|| "未找到 update_and_rebuild.sh 脚本文件".to_string())?;
++    let script_dir = script_path
++        .parent()
++        .ok_or_else(|| "无法获取脚本所在目录".to_string())?;
++
++    let channel_arg = match channel.as_deref() {
++        Some("beta") | Some("dev") => "beta",
++        _ => "stable",
++    };
++
++    let command_str = format!(
++        "cd \"{}\" && ./update_and_rebuild.sh {}",
++        script_dir.display(),
++        channel_arg
++    );
++
++    logger::log_info(&format!("触发本地源码一键更新与重构: {}", command_str));
++
++    // 使用 AppleScript 打开 Terminal 并在新窗口执行，保证实时日志可见且应用重启时构建进程不被连带终止
++    let apple_script = format!(
++        "tell application \"Terminal\"\nactivate\ndo script \"{}\"\nend tell",
++        command_str.replace('"', "\\\"")
++    );
++
++    let status = tokio::process::Command::new("osascript")
++        .arg("-e")
++        .arg(&apple_script)
++        .status()
++        .await
++        .map_err(|e| format!("启动终端执行脚本失败: {}", e))?;
++
++    if status.success() {
++        Ok("rebuild_launched".to_string())
++    } else {
++        Err("执行 osascript 开启终端失败".to_string())
++    }
++}
++
++#[cfg(not(target_os = "macos"))]
++pub async fn trigger_local_rebuild(_channel: Option<String>) -> Result<String, String> {
++    Err("本地一键重构更新目前仅支持 macOS 环境".to_string())
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
 diff --git a/src-tauri/src/proxy/common/cursor_cleaner.rs b/src-tauri/src/proxy/common/cursor_cleaner.rs
 new file mode 100644
 index 00000000..7075969d
@@ -907,7 +904,7 @@ index 8f6937a6..7043c5e1 100644
  pub mod model_mapping;
  pub mod schema_cache;
 diff --git a/src-tauri/src/proxy/config.rs b/src-tauri/src/proxy/config.rs
-index 2f40678a..3f4a1172 100644
+index fddf0d85..78932fac 100644
 --- a/src-tauri/src/proxy/config.rs
 +++ b/src-tauri/src/proxy/config.rs
 @@ -146,6 +146,33 @@ pub fn update_image_thinking_mode(mode: Option<String>) {
@@ -942,9 +939,9 @@ index 2f40678a..3f4a1172 100644
 +}
 +
  // ============================================================================
- // 全局压缩等级配置存储
+ // 全局多模态交互与保鲜滑窗配置存储
  // ============================================================================
-@@ -929,6 +956,10 @@ pub struct ProxyConfig {
+@@ -811,6 +838,10 @@ pub struct ProxyConfig {
      #[serde(default)]
      pub only_raw_quota_models: bool,
  
@@ -952,22 +949,31 @@ index 2f40678a..3f4a1172 100644
 +    #[serde(default)]
 +    pub cursor_cleaner: bool,
 +
-     /// z.ai provider configuration (Anthropic-compatible).
+     /// 自定义 User-Agent 请求头 (可选覆盖)
      #[serde(default)]
-     pub zai: ZaiConfig,
-@@ -1089,6 +1120,7 @@ impl Default for ProxyConfig {
+     pub user_agent_override: Option<String>,
+@@ -997,6 +1028,7 @@ impl Default for ProxyConfig {
              debug_logging: DebugLoggingConfig::default(),
              upstream_proxy: UpstreamProxyConfig::default(),
              only_raw_quota_models: false,
 +            cursor_cleaner: false,
-             zai: ZaiConfig::default(),
              scheduling: crate::proxy::sticky_config::StickySessionConfig::default(),
              experimental: ExperimentalConfig::default(),
+             security_monitor: SecurityMonitorConfig::default(),
 diff --git a/src-tauri/src/proxy/handlers/claude.rs b/src-tauri/src/proxy/handlers/claude.rs
-index 252f1b5f..366667b3 100644
+index 88a3cbb9..aa27bec9 100644
 --- a/src-tauri/src/proxy/handlers/claude.rs
 +++ b/src-tauri/src/proxy/handlers/claude.rs
-@@ -1501,6 +1501,37 @@ pub async fn handle_messages(
+@@ -27,7 +27,7 @@ use crate::proxy::server::AppState;
+ use crate::proxy::upstream::client::mask_email;
+ use axum::http::HeaderMap;
+ use dashmap::DashSet;
+-use std::sync::{atomic::Ordering, Arc, LazyLock};
++use std::sync::{Arc, LazyLock};
+ 
+ /// 记录刚完成压缩总结的会话集合，提供单次续写接续免死标志 (One-Shot Post-Compaction Immunity)
+ /// 彻底攻克“静态扫描消息导致一次压缩后终身免死无法再次压缩”的死穴 (Fixes #3563)
+@@ -1373,6 +1373,37 @@ pub async fn handle_messages(
  
                          // 判断客户端期望的格式
                          if client_wants_stream {
@@ -1006,10 +1012,10 @@ index 252f1b5f..366667b3 100644
                              return Response::builder()
                                  .status(StatusCode::OK)
 diff --git a/src-tauri/src/proxy/handlers/openai.rs b/src-tauri/src/proxy/handlers/openai.rs
-index d24b8f51..43a9af06 100644
+index be242c48..7f345e0e 100644
 --- a/src-tauri/src/proxy/handlers/openai.rs
 +++ b/src-tauri/src/proxy/handlers/openai.rs
-@@ -31,6 +31,7 @@ use crate::modules::account;
+@@ -30,6 +30,7 @@ use crate::modules::account;
  use crate::proxy::common::client_adapter::CLIENT_ADAPTERS; // [NEW] Adapter Registry
  use crate::proxy::session_manager::SessionManager;
  use axum::http::HeaderMap;
@@ -1017,7 +1023,7 @@ index d24b8f51..43a9af06 100644
  use std::collections::VecDeque;
  use std::io;
  use tokio::task::JoinSet;
-@@ -2614,6 +2615,33 @@ pub async fn handle_chat_completions(
+@@ -2592,6 +2593,33 @@ pub async fn handle_chat_completions(
                          });
                      }
                      // 客户端请求流式，返回 SSE
@@ -1051,7 +1057,7 @@ index d24b8f51..43a9af06 100644
                      let body = Body::from_stream(combined_stream);
                      return Ok(Response::builder()
                          .header("Content-Type", "text/event-stream")
-@@ -4407,6 +4435,33 @@ pub async fn handle_completions(
+@@ -4266,6 +4294,33 @@ pub async fn handle_completions(
                              }
                          });
                      }
@@ -1085,7 +1091,7 @@ index d24b8f51..43a9af06 100644
                      return Response::builder()
                          .header("Content-Type", "text/event-stream")
                          .header("Cache-Control", "no-cache")
-@@ -6067,7 +6122,7 @@ pub async fn handle_images_edits(
+@@ -6014,7 +6069,7 @@ pub async fn handle_images_edits(
  // ==========================================
  
  use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
@@ -1095,7 +1101,7 @@ index d24b8f51..43a9af06 100644
  
  // ==========================================
 diff --git a/src-tauri/src/proxy/mappers/claude/response.rs b/src-tauri/src/proxy/mappers/claude/response.rs
-index 15223515..de6f6e31 100644
+index 00523d51..250104c5 100644
 --- a/src-tauri/src/proxy/mappers/claude/response.rs
 +++ b/src-tauri/src/proxy/mappers/claude/response.rs
 @@ -93,15 +93,40 @@ impl NonStreamingProcessor {
@@ -1155,7 +1161,7 @@ index 15223515..de6f6e31 100644
              }
  
              self.has_tool_call = true;
-@@ -181,12 +202,9 @@ impl NonStreamingProcessor {
+@@ -189,12 +210,9 @@ impl NonStreamingProcessor {
  
                  // 处理 trailingSignature
                  if let Some(trailing_sig) = self.trailing_signature.take() {
@@ -1171,7 +1177,7 @@ index 15223515..de6f6e31 100644
                  }
  
                  self.thinking_builder.push_str(text);
-@@ -207,24 +225,15 @@ impl NonStreamingProcessor {
+@@ -215,24 +233,15 @@ impl NonStreamingProcessor {
  
                  // 处理之前的 trailingSignature
                  if let Some(trailing_sig) = self.trailing_signature.take() {
@@ -1199,7 +1205,7 @@ index 15223515..de6f6e31 100644
                  }
              }
          }
-@@ -236,7 +245,16 @@ impl NonStreamingProcessor {
+@@ -244,7 +253,16 @@ impl NonStreamingProcessor {
              let mime_type = &img.mime_type;
              let data = &img.data;
              if !data.is_empty() {
@@ -1218,7 +1224,7 @@ index 15223515..de6f6e31 100644
                  self.flush_text();
              }
 diff --git a/src-tauri/src/proxy/mappers/claude/streaming.rs b/src-tauri/src/proxy/mappers/claude/streaming.rs
-index 05c6ffb3..e3032caa 100644
+index dc57e67b..64529e55 100644
 --- a/src-tauri/src/proxy/mappers/claude/streaming.rs
 +++ b/src-tauri/src/proxy/mappers/claude/streaming.rs
 @@ -445,6 +445,44 @@ impl StreamingState {
@@ -1266,7 +1272,7 @@ index 05c6ffb3..e3032caa 100644
      /// 处理 SSE 解析错误，实现优雅降级
      ///
      /// 当 SSE stream 中发生解析错误时:
-@@ -543,28 +581,9 @@ impl<'a> PartProcessor<'a> {
+@@ -560,28 +598,9 @@ impl<'a> PartProcessor<'a> {
  
          // 1. FunctionCall 处理
          if let Some(fc) = &part.function_call {
@@ -1297,7 +1303,7 @@ index 05c6ffb3..e3032caa 100644
              }
  
              chunks.extend(self.process_function_call(fc, signature));
-@@ -589,7 +608,7 @@ impl<'a> PartProcessor<'a> {
+@@ -606,7 +625,7 @@ impl<'a> PartProcessor<'a> {
              let mime_type = &img.mime_type;
              let data = &img.data;
              if !data.is_empty() {
@@ -1306,7 +1312,7 @@ index 05c6ffb3..e3032caa 100644
                  chunks.extend(self.process_text(&markdown_img, None));
              }
          }
-@@ -601,28 +620,9 @@ impl<'a> PartProcessor<'a> {
+@@ -618,28 +637,9 @@ impl<'a> PartProcessor<'a> {
      fn process_thinking(&mut self, text: &str, signature: Option<String>) -> Vec<Bytes> {
          let mut chunks = Vec::new();
  
@@ -1338,7 +1344,7 @@ index 05c6ffb3..e3032caa 100644
          }
  
          // 开始或继续 thinking 块
-@@ -697,46 +697,37 @@ impl<'a> PartProcessor<'a> {
+@@ -714,46 +714,37 @@ impl<'a> PartProcessor<'a> {
      fn process_text(&mut self, text: &str, signature: Option<String>) -> Vec<Bytes> {
          let mut chunks = Vec::new();
  
@@ -1404,7 +1410,7 @@ index 05c6ffb3..e3032caa 100644
              self.state.store_signature(signature);
  
              chunks.extend(
-@@ -1525,4 +1516,111 @@ mod tests {
+@@ -1544,4 +1535,111 @@ mod tests {
          assert!(!output.contains("text_delta"));
          assert!(state.used_tool);
      }
@@ -1516,213 +1522,11 @@ index 05c6ffb3..e3032caa 100644
 +        );
 +    }
  }
-diff --git a/src-tauri/src/proxy/mappers/common_utils.rs b/src-tauri/src/proxy/mappers/common_utils.rs
-index a15b2272..00d249e0 100644
---- a/src-tauri/src/proxy/mappers/common_utils.rs
-+++ b/src-tauri/src/proxy/mappers/common_utils.rs
-@@ -1145,8 +1145,8 @@ mod tests {
-             None
-         );
- 
--        // 4. Valid PNG base64 (8 bytes magic header)
--        let valid_png_b64 = "iVBORw0KGgo=";
-+        // 4. Valid 1x1 PNG base64 (must be decodable, not just a magic header)
-+        let valid_png_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
-         let res = validate_and_sanitize_inline_data(Some("image/png"), valid_png_b64);
-         assert!(res.is_some());
-         let (mime, data) = res.unwrap();
-@@ -1157,11 +1157,35 @@ mod tests {
-         let res_no_mime = validate_and_sanitize_inline_data(None, valid_png_b64);
-         assert!(res_no_mime.is_some());
-         assert_eq!(res_no_mime.unwrap().0, "image/png");
-+
-+        // 6. Base64 that decodes successfully but is actually a tool-output placeholder
-+        // must never be forwarded as image data.
-+        use base64::Engine as _;
-+        let placeholder = base64::engine::general_purpose::STANDARD
-+            .encode("[Image: forwarded to visual input (image/jpeg)]");
-+        assert_eq!(
-+            validate_and_sanitize_inline_data(Some("image/jpeg"), &placeholder),
-+            None
-+        );
-+
-+        // 7. A declared image MIME must agree with the file signature.
-+        assert_eq!(
-+            validate_and_sanitize_inline_data(Some("image/jpeg"), valid_png_b64),
-+            None
-+        );
-+
-+        // A JPEG header alone is not a usable image; truncated payloads must be rejected.
-+        let truncated_jpeg = base64::engine::general_purpose::STANDARD
-+            .encode([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, b'J', b'F', b'I', b'F']);
-+        assert_eq!(
-+            validate_and_sanitize_inline_data(Some("image/jpeg"), &truncated_jpeg),
-+            None
-+        );
-     }
- 
-     #[test]
-     fn test_create_gemini_inline_part() {
--        let valid_png_b64 = "iVBORw0KGgo=";
-+        let valid_png_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
-         let valid_part = create_gemini_inline_part(Some("image/png"), valid_png_b64, "Image");
-         assert!(valid_part.get("inlineData").is_some());
-         assert_eq!(valid_part["inlineData"]["mimeType"], "image/png");
-@@ -1176,7 +1200,7 @@ mod tests {
- 
-     #[test]
-     fn test_sanitize_gemini_payload_inline_data() {
--        let valid_png_b64 = "iVBORw0KGgo=";
-+        let valid_png_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
-         let mut payload = json!({
-             "contents": [
-                 {
-@@ -1433,6 +1457,20 @@ pub fn detect_mime_from_bytes(bytes: &[u8]) -> Option<&'static str> {
-     }
- }
- 
-+/// Check that a recognized raster image is structurally decodable, rather than merely
-+/// beginning with a matching magic header. Truncated JPEGs are a common source of Google's
-+/// opaque "Unable to process input image" 400 response.
-+fn is_decodable_raster_image(bytes: &[u8], mime: &str) -> bool {
-+    match mime {
-+        "image/gif" | "image/jpeg" | "image/png" | "image/webp" => {
-+            image::load_from_memory(bytes).is_ok()
-+        }
-+        // HEIC is recognized for MIME consistency, but this build does not include an HEIC
-+        // decoder. Keep the existing signature check for it and let the upstream service decide.
-+        _ => true,
-+    }
-+}
-+
- /// Validates and sanitizes inline base64 data (images/documents) for Gemini upstream.
- /// Returns `Some((mime_type, sanitized_b64))` if valid, or `None` if corrupt/empty/too small.
- pub fn validate_and_sanitize_inline_data(
-@@ -1469,28 +1507,38 @@ pub fn validate_and_sanitize_inline_data(
-         .unwrap_or(false);
- 
-     if !is_audio_or_video {
--        // For images/documents, require at least 5 decoded bytes and 8 base64 chars
-+        // Images/documents must contain enough bytes to inspect their file signature. This is
-+        // deliberately stricter than a base64-only check: tool output can contain placeholders
-+        // such as "[Image: forwarded to visual input ...]" that are valid base64 but not images.
-         if clean_b64.len() < 8 || decoded_bytes.len() < 5 {
-             return None;
-         }
-     }
- 
--    // Detect MIME from magic bytes if possible
-+    // Detect MIME from magic bytes if possible. A declared image/document MIME is only trusted
-+    // when it agrees with the bytes; otherwise the invalid payload would reach Google and produce
-+    // the opaque 400 "Unable to process input image" error.
-     let inferred_mime = detect_mime_from_bytes(&decoded_bytes);
--
--    let final_mime = match (mime_type.map(str::trim), inferred_mime) {
--        (Some(m), _)
--            if !m.is_empty()
--                && (m.starts_with("image/")
--                    || m.starts_with("application/")
--                    || m.starts_with("audio/")
--                    || m.starts_with("video/")) =>
--        {
--            m.to_string()
-+    if !is_audio_or_video {
-+        let Some(inferred) = inferred_mime else {
-+            return None;
-+        };
-+        if let Some(declared) = declared_mime {
-+            let matches = declared.eq_ignore_ascii_case(inferred)
-+                || (declared.eq_ignore_ascii_case("image/jpg") && inferred == "image/jpeg");
-+            if !matches {
-+                return None;
-+            }
-         }
--        (_, Some(inferred)) => inferred.to_string(),
-+        if inferred.starts_with("image/") && !is_decodable_raster_image(&decoded_bytes, inferred) {
-+            return None;
-+        }
-+    }
-+
-+    let final_mime = match (declared_mime, inferred_mime) {
-         (Some(m), _) if !m.is_empty() => m.to_string(),
--        _ => "image/jpeg".to_string(), // fallback default
-+        (_, Some(inferred)) => inferred.to_string(),
-+        _ => return None,
-     };
- 
-     Some((final_mime, clean_b64.to_string()))
-@@ -1736,9 +1784,8 @@ pub const TRANSIT_DEFENSE_FALLBACK_TEXT: &str = "Please continue your analysis."
- /// 1. 自动兼容平铺 payload 或包含 "request" 包装的 payload；
- /// 2. 若 contents 为空，追加 {"role": "user", "parts": [{"text": TRANSIT_DEFENSE_FALLBACK_TEXT}]}；
- /// 3. 若末尾轮次为 "model"（缺失用户轮次），追加 {"role": "user", "parts": [{"text": TRANSIT_DEFENSE_FALLBACK_TEXT}]}；
--///    例外：末尾 model 轮若携带 functionCall / functionResponse（模型主动发起的工具轮），
--///    视为合法中间态，不注入（否则会与 normalize_function_response_roles 的 fr@model 对齐
--///    打架，把官方合法报文误判为缺用户轮，注入"Please continue your analysis."造成工具死循环）；
-+///    仅当末尾 model 轮携带 functionCall（模型主动发起工具、等待回执）时保留为合法中间态。
-+///    functionResponse 表示工具结果已经返回，不能作为请求结尾；
- /// 4. 若末尾轮次为 "user" 且其 parts 为空、或仅含有空文本 / "(no content)" / "·" 且无工具/图片，规范化填充为 [{"text": TRANSIT_DEFENSE_FALLBACK_TEXT}]；
- /// 5. 修复中间轮次中 parts 为空的情况，防止 Google 返回 400 "parts must not be empty"。
- pub fn ensure_gemini_payload_ends_with_user(body: &mut Value) -> bool {
-@@ -1787,21 +1834,18 @@ pub fn ensure_gemini_payload_ends_with_user(body: &mut Value) -> bool {
- 
-     // 防御 3: 检查末尾轮次。
-     // 注意：InboundThinkingPipeline::normalize_function_response_roles 会把纯回执轮对齐为
--    // role=model（官方 Antigravity 报文约定 fr 恒在 model 轮）。因此「末尾为 model 轮」
--    // 并不代表报文不完整——若该轮携带 functionCall（模型主动发起工具轮，等待回执，
--    // 属于合法的中间态），绝不能注入假用户话术，否则会放大成 Agent 工具死循环。
-+    // role=model（官方 Antigravity 报文约定 fr 恒在 model 轮）。但已经带有
-+    // functionResponse 的 model 轮表示工具结果已经返回；如果它位于请求末尾，Google
-+    // 会拒绝该请求（"Requests ending with a model turn are not supported"）。只有
-+    // functionCall（模型主动发起工具轮、等待回执）可以保留为末尾中间态。
-     let need_append_user = if let Some(last_turn) = contents.last_mut() {
-         let role = last_turn.get("role").and_then(|r| r.as_str()).unwrap_or("");
-         if role == "model" || role == "assistant" {
--            // 工具轮合法：末尾 model 轮含 functionCall 或 functionResponse 时不注入
-+            // 等待工具回执的 functionCall 轮可以保留；functionResponse 末尾必须补 user。
-             let is_tool_turn = last_turn
-                 .get("parts")
-                 .and_then(|p| p.as_array())
--                .map(|parts| {
--                    parts.iter().any(|part| {
--                        part.get("functionCall").is_some() || part.get("functionResponse").is_some()
--                    })
--                })
-+                .map(|parts| parts.iter().any(|part| part.get("functionCall").is_some()))
-                 .unwrap_or(false);
-             !is_tool_turn
-         } else {
-@@ -1978,6 +2022,26 @@ mod defense_tests {
-         let contents2 = payload2["contents"].as_array().unwrap();
-         assert_eq!(contents2.len(), 3);
-         assert_eq!(contents2[2]["role"], "user");
-+
-+        // 已完成的 functionResponse 轮不能作为请求结尾，否则 Google 会拒绝请求。
-+        let mut payload3 = json!({
-+            "contents": [
-+                { "role": "user", "parts": [{ "text": "run the tool" }] },
-+                {
-+                    "role": "model",
-+                    "parts": [{
-+                        "functionResponse": {
-+                            "name": "run_command",
-+                            "id": "call_1",
-+                            "response": { "result": "ok" }
-+                        }
-+                    }]
-+                }
-+            ]
-+        });
-+        assert!(ensure_gemini_payload_ends_with_user(&mut payload3));
-+        let contents3 = payload3["contents"].as_array().unwrap();
-+        assert_eq!(contents3.last().unwrap()["role"], "user");
-     }
- 
-     #[test]
 diff --git a/src-tauri/src/proxy/mappers/openai/response.rs b/src-tauri/src/proxy/mappers/openai/response.rs
-index c9591050..53a3ec0a 100644
+index 43529f8e..9fc9388b 100644
 --- a/src-tauri/src/proxy/mappers/openai/response.rs
 +++ b/src-tauri/src/proxy/mappers/openai/response.rs
-@@ -136,8 +136,18 @@ pub fn transform_openai_response(
+@@ -141,8 +141,18 @@ pub fn transform_openai_response(
                              .unwrap_or("image/png");
                          let data = img.get("data").and_then(|v| v.as_str()).unwrap_or("");
                          if !data.is_empty() {
@@ -1744,10 +1548,10 @@ index c9591050..53a3ec0a 100644
                      }
  
 diff --git a/src-tauri/src/proxy/mappers/openai/streaming.rs b/src-tauri/src/proxy/mappers/openai/streaming.rs
-index 020af7e4..b3087181 100644
+index 5c348e4e..5663072c 100644
 --- a/src-tauri/src/proxy/mappers/openai/streaming.rs
 +++ b/src-tauri/src/proxy/mappers/openai/streaming.rs
-@@ -92,6 +92,7 @@ where
+@@ -96,6 +96,7 @@ where
      let stream = async_stream::stream! {
          let mut emitted_tool_calls = std::collections::HashSet::new();
          let mut final_usage: Option<super::models::OpenAIUsage> = None;
@@ -1755,7 +1559,7 @@ index 020af7e4..b3087181 100644
          let mut error_occurred = false;
          let mut tool_call_index = 0;
          let mut thinking_acc = if let Some(ref a) = causal_anchor {
-@@ -154,7 +155,14 @@ where
+@@ -158,7 +159,14 @@ where
                                                                  let mime_type = img.get("mimeType").and_then(|v| v.as_str()).unwrap_or("image/png");
                                                                  let data = img.get("data").and_then(|v| v.as_str()).unwrap_or("");
                                                                  if !data.is_empty() {
@@ -1771,7 +1575,7 @@ index 020af7e4..b3087181 100644
                                                                  }
                                                              }
                                                              if let Some(func_call) = part.get("functionCall") {
-@@ -295,6 +303,7 @@ where
+@@ -299,6 +307,7 @@ where
                                                              }]
                                                          });
                                                          if finish_reason.is_some() {
@@ -1779,7 +1583,7 @@ index 020af7e4..b3087181 100644
                                                              if !include_usage {
                                                                  if let Some(ref usage) = final_usage {
                                                                      openai_chunk["usage"] = serde_json::to_value(usage).unwrap();
-@@ -352,6 +361,33 @@ where
+@@ -380,6 +389,33 @@ where
  
          thinking_acc.commit(&session_id);
          if !error_occurred {
@@ -1813,7 +1617,7 @@ index 020af7e4..b3087181 100644
              // [CRITICAL FIX #3455] Only emit standalone usage chunk with empty choices if client explicitly
              // requested stream_options.include_usage: true. Emitting choices: [] unconditionally causes Python
              // OpenAI SDK and autonomous agents (Hermes, etc.) to crash with `IndexError: list index out of range`!
-@@ -574,6 +610,9 @@ where
+@@ -677,6 +713,9 @@ where
          let mut reasoning_open = false;
          let mut reasoning_item_seq: u32 = 0;
          let mut active_reasoning_item_id = String::new();
@@ -1823,7 +1627,7 @@ index 020af7e4..b3087181 100644
  
          let mut emitted_tool_calls = std::collections::HashSet::new();
          let mut accumulated_text = String::new();
-@@ -623,11 +662,100 @@ where
+@@ -727,11 +766,100 @@ where
                                                      for part in parts {
                                                          thinking_acc.ingest_part(part);
                                                          let is_thought = part.get("thought").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -1926,7 +1730,7 @@ index 020af7e4..b3087181 100644
                                                              let text_done = json!({
                                                                  "type": "response.reasoning_summary_text.done",
                                                                  "item_id": &active_reasoning_item_id,
-@@ -673,76 +801,69 @@ where
+@@ -777,76 +905,69 @@ where
                                                              reasoning_open = false;
                                                          }
  
@@ -2064,7 +1868,7 @@ index 020af7e4..b3087181 100644
                                                              }
                                                          }
                                                          if let Some(sig) = part.get("thoughtSignature").or(part.get("thought_signature")).and_then(|s| s.as_str()) {
-@@ -975,18 +1096,46 @@ where
+@@ -1119,18 +1240,46 @@ where
              final_outputs_map.insert(reasoning_output_index, reasoning_item);
          }
  
@@ -2115,7 +1919,7 @@ index 020af7e4..b3087181 100644
          }
  
          if message_item_emitted {
-@@ -1408,6 +1557,9 @@ mod tests {
+@@ -1618,6 +1767,9 @@ mod tests {
  
      #[tokio::test]
      async fn test_codex_final_message_is_promoted_and_persisted() {
@@ -2125,7 +1929,7 @@ index 020af7e4..b3087181 100644
          let (_, events) = collect_codex_stream(vec![
              json!({"candidates": [{"content": {"parts": [{"text": "Checking ", "thought": true}]}}]}),
              json!({"candidates": [{"content": {"parts": [{"text": "results.", "thought": true}]}}]}),
-@@ -1498,6 +1650,9 @@ mod tests {
+@@ -1708,6 +1860,9 @@ mod tests {
  
      #[tokio::test]
      async fn test_codex_late_thought_does_not_mix_into_final_answer() {
@@ -2135,7 +1939,7 @@ index 020af7e4..b3087181 100644
          let (raw, events) = collect_codex_stream(vec![
              json!({
                  "candidates": [{
-@@ -1535,6 +1690,9 @@ mod tests {
+@@ -1745,6 +1900,9 @@ mod tests {
  
      #[tokio::test]
      async fn test_codex_tool_round_message_stays_commentary() {
@@ -2145,7 +1949,7 @@ index 020af7e4..b3087181 100644
          let (_, events) = collect_codex_stream(vec![
              json!({
                  "candidates": [{
-@@ -1594,6 +1752,279 @@ mod tests {
+@@ -1804,6 +1962,279 @@ mod tests {
          assert_eq!(terminal["response"]["error"]["code"], "empty_response");
      }
  
@@ -2425,7 +2229,7 @@ index 020af7e4..b3087181 100644
      #[tokio::test]
      async fn test_openai_streaming_usage_only_at_end() {
          // Chunk 1: Partial content, no usage
-@@ -1963,4 +2394,140 @@ mod tests {
+@@ -2173,4 +2604,140 @@ mod tests {
          );
          assert_eq!(final_finish_reason, Some("stop".to_string()));
      }
@@ -2567,23 +2371,38 @@ index 020af7e4..b3087181 100644
 +    }
  }
 diff --git a/src-tauri/src/proxy/mod.rs b/src-tauri/src/proxy/mod.rs
-index 7f92f387..e7c6fbba 100644
+index 0e1871c0..86b65619 100644
 --- a/src-tauri/src/proxy/mod.rs
 +++ b/src-tauri/src/proxy/mod.rs
-@@ -36,6 +36,8 @@ pub mod video; // 视频处理模块
- pub mod zai_vision_mcp; // Built-in Vision MCP server state
- pub mod zai_vision_tools; // Built-in Vision MCP tools (z.ai vision API) // 调试日志
+@@ -33,6 +33,8 @@ pub mod thinking_store; // 服务端完整思考块存储
+ pub mod upstream; // 上游客户端
+ pub mod video; // 视频处理模块
  
 +pub use config::is_cursor_cleaner_enabled;
 +pub use config::update_cursor_cleaner;
  pub use config::update_global_system_prompt_config;
  pub use config::update_image_thinking_mode;
- pub use config::update_thinking_budget_config;
+ pub use config::update_multimodal_config;
 diff --git a/src-tauri/src/proxy/server.rs b/src-tauri/src/proxy/server.rs
-index df29f29c..947dc79f 100644
+index e8677050..9fe79789 100644
 --- a/src-tauri/src/proxy/server.rs
 +++ b/src-tauri/src/proxy/server.rs
-@@ -437,6 +437,11 @@ impl AxumServer {
+@@ -5,13 +5,12 @@ use axum::{
+     extract::{DefaultBodyLimit, Path, Query, State},
+     http::{HeaderMap, StatusCode},
+     response::{Html, IntoResponse, Json, Response},
+-    routing::{any, delete, get, post},
++    routing::{delete, get, post},
+     Router,
+ };
+ use serde::{Deserialize, Serialize};
+ use serde_json::json;
+ use std::collections::{HashMap, HashSet};
+-use std::sync::atomic::AtomicUsize;
+ use std::sync::{Arc, Mutex, OnceLock};
+ use tokio::sync::{watch, RwLock};
+ use tracing::{debug, error};
+@@ -433,6 +432,11 @@ impl AxumServer {
          tracing::debug!("only_raw_quota_models 已更新: {}", only_raw);
      }
  
@@ -2595,11 +2414,54 @@ index df29f29c..947dc79f 100644
      pub async fn update_mapping(&self, config: &crate::proxy::config::ProxyConfig) {
          {
              let mut m = self.custom_mapping.write().await;
+@@ -960,6 +964,8 @@ impl AxumServer {
+             .route("/system/updates/check", post(admin_check_for_updates))
+             .route("/system/updates/touch", post(admin_update_last_check_time))
+             .route("/system/updates/save", post(admin_save_update_settings))
++            .route("/system/rebuild/status", get(admin_check_rebuild_available))
++            .route("/system/rebuild/trigger", post(admin_trigger_local_rebuild))
+             .route(
+                 "/system/autostart/status",
+                 get(admin_is_auto_launch_enabled),
+@@ -2489,6 +2495,33 @@ async fn admin_should_check_updates() -> Result<impl IntoResponse, (StatusCode,
+     Ok(Json(should))
+ }
+ 
++async fn admin_check_rebuild_available(
++) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
++    Ok(Json(
++        crate::modules::update_checker::is_rebuild_script_available(),
++    ))
++}
++
++#[derive(Debug, Deserialize)]
++struct RebuildPayload {
++    channel: Option<String>,
++}
++
++async fn admin_trigger_local_rebuild(
++    body: Option<Json<RebuildPayload>>,
++) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
++    let channel = body.and_then(|b| b.channel.clone());
++    let res = crate::modules::update_checker::trigger_local_rebuild(channel)
++        .await
++        .map_err(|e| {
++            (
++                StatusCode::INTERNAL_SERVER_ERROR,
++                Json(ErrorResponse { error: e }),
++            )
++        })?;
++    Ok(Json(json!({ "status": res })))
++}
++
+ async fn admin_get_antigravity_path() -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)>
+ {
+     let path = crate::commands::get_antigravity_path(Some(true))
 diff --git a/src-tauri/tauri.conf.json b/src-tauri/tauri.conf.json
-index 0bc94c1e..495f1bec 100644
+index 79d74b97..f694f270 100644
 --- a/src-tauri/tauri.conf.json
 +++ b/src-tauri/tauri.conf.json
-@@ -55,8 +55,8 @@
+@@ -57,8 +57,8 @@
      "updater": {
        "active": true,
        "endpoints": [
@@ -2873,10 +2735,40 @@ index dbdcf048..0009c348 100644
  /* 禁止过度滚动和橡皮筋效果 */
  html,
 diff --git a/src/components/UpdateNotification.tsx b/src/components/UpdateNotification.tsx
-index 5b592b21..5c5970ed 100644
+index 5b592b21..3f920396 100644
 --- a/src/components/UpdateNotification.tsx
 +++ b/src/components/UpdateNotification.tsx
-@@ -133,6 +133,9 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ onClose
+@@ -1,5 +1,5 @@
+ import React, { useEffect, useState, useRef } from 'react';
+-import { X, Sparkles, Loader2, CheckCircle, RotateCcw } from 'lucide-react';
++import { X, Sparkles, Loader2, CheckCircle, RotateCcw, Terminal } from 'lucide-react';
+ import { request as invoke } from '../utils/request';
+ import { useTranslation } from 'react-i18next';
+ import { Update, check as tauriCheck } from '@tauri-apps/plugin-updater';
+@@ -31,6 +31,8 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ onClose
+   const [isClosing, setIsClosing] = useState(false);
+   const [updateState, setUpdateState] = useState<UpdateState>('checking');
+   const [downloadProgress, setDownloadProgress] = useState(0);
++  const [isRebuildAvailable, setIsRebuildAvailable] = useState(false);
++  const [isRebuilding, setIsRebuilding] = useState(false);
+   const downloadStarted = useRef(false);
+ 
+   useEffect(() => {
+@@ -39,6 +41,13 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ onClose
+ 
+   const checkAndDownload = async () => {
+     try {
++      try {
++        const canRebuild = await invoke<boolean>('check_rebuild_available');
++        setIsRebuildAvailable(canRebuild);
++      } catch {
++        setIsRebuildAvailable(false);
++      }
++
+       // 1. Check for updates via backend
+       const info = await invoke<UpdateInfo>('check_for_updates');
+       if (!info.has_update) {
+@@ -133,6 +142,9 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ onClose
        console.error('Auto update failed:', errorMsg);
        setUpdateState('error');
        showToast(`${t('update_notification.toast.failed')}: ${errorMsg}`, 'error');
@@ -2886,7 +2778,31 @@ index 5b592b21..5c5970ed 100644
      }
    };
  
-@@ -150,7 +153,7 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ onClose
+@@ -144,13 +156,31 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ onClose
+     }
+   };
+ 
++  const handleTriggerLocalRebuild = async () => {
++    setIsRebuilding(true);
++    try {
++      await invoke('trigger_local_rebuild', { channel: updateInfo?.channel || 'stable' });
++      showToast(
++        t('update_notification.rebuild_launched', {
++          defaultValue: '已在独立终端启动源码更新与构建 (update_and_rebuild.sh)',
++        }),
++        'success'
++      );
++      handleClose();
++    } catch (err) {
++      showToast(`${t('common.error')}: ${err}`, 'error');
++    } finally {
++      setIsRebuilding(false);
++    }
++  };
++
+   const handleClose = () => {
+     setIsClosing(true);
+     setIsVisible(false);
      setTimeout(onClose, 400);
    };
  
@@ -2895,7 +2811,7 @@ index 5b592b21..5c5970ed 100644
      return null;
    }
  
-@@ -159,7 +162,7 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ onClose
+@@ -159,7 +189,7 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ onClose
        className={`
          fixed top-6 right-6 z-[100]
          transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]
@@ -2904,6 +2820,40 @@ index 5b592b21..5c5970ed 100644
        `}
      >
        <div className="
+@@ -355,6 +385,33 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ onClose
+               <span>{t('common.retry')}</span>
+             </button>
+           )}
++
++          {/* Local source rebuild button (update_and_rebuild.sh) */}
++          {isRebuildAvailable && (
++            <button
++              onClick={handleTriggerLocalRebuild}
++              disabled={isRebuilding}
++              className="
++                w-full mt-2.5 group/btn
++                relative overflow-hidden
++                bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/50
++                text-purple-700 dark:text-purple-300 border border-purple-200/80 dark:border-purple-800/60
++                text-xs font-semibold
++                py-2 px-3 rounded-xl
++                transition-all duration-200
++                flex items-center justify-center gap-1.5
++                active:scale-[0.98]
++              "
++              title="使用本地脚本更新并在终端重构编译，完整保留所有本地定制与 Cursor 补丁"
++            >
++              <Terminal className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
++              <span>
++                {isRebuilding
++                  ? t('update_notification.rebuilding', { defaultValue: '正在启动终端...' })
++                  : t('update_notification.btn_rebuild', { defaultValue: '源码重构更新 (保留补丁)' })}
++              </span>
++            </button>
++          )}
+         </div>
+       </div>
+     </div>
 diff --git a/src/components/accounts/AccountDetailsDialog.tsx b/src/components/accounts/AccountDetailsDialog.tsx
 index 5fe41513..ee1f2f3a 100644
 --- a/src/components/accounts/AccountDetailsDialog.tsx
@@ -3034,7 +2984,7 @@ index 5320707d..4a75d85f 100644
          document.body
      );
 diff --git a/src/components/proxy/CliSyncCard.tsx b/src/components/proxy/CliSyncCard.tsx
-index 82d27009..2a333111 100644
+index c8a64c13..014e628c 100644
 --- a/src/components/proxy/CliSyncCard.tsx
 +++ b/src/components/proxy/CliSyncCard.tsx
 @@ -1,4 +1,5 @@
@@ -3118,8 +3068,85 @@ index f5b1ccf1..1b81f6ce 100644
 +        document.body
      );
  }
+diff --git a/src/components/settings/AgentSettings.tsx b/src/components/settings/AgentSettings.tsx
+index b4a70476..31365dbd 100644
+--- a/src/components/settings/AgentSettings.tsx
++++ b/src/components/settings/AgentSettings.tsx
+@@ -1,18 +1,22 @@
+ import React, { useState } from "react";
+ import { useTranslation } from "react-i18next";
+-import { Save, Check, Bot, Laptop, ShieldCheck, Zap } from "lucide-react";
++import { Save, Check, Bot, Laptop, ShieldCheck, Zap, Sparkles } from "lucide-react";
+ import { ExperimentalConfig } from "../../types/config";
+ import { showToast } from "../common/ToastContainer";
+ 
+ interface AgentSettingsProps {
+     experimentalConfig?: ExperimentalConfig;
+     onChange: (updates: Partial<ExperimentalConfig>) => void;
++    cursorCleaner?: boolean;
++    onCursorCleanerChange?: (enabled: boolean) => void;
+     onSave?: () => Promise<void> | void;
+ }
+ 
+ export const AgentSettings: React.FC<AgentSettingsProps> = ({
+     experimentalConfig,
+     onChange,
++    cursorCleaner,
++    onCursorCleanerChange,
+     onSave,
+ }) => {
+     const { t } = useTranslation();
+@@ -165,6 +169,48 @@ export const AgentSettings: React.FC<AgentSettingsProps> = ({
+                 </div>
+             </div>
+ 
++            {/* 板块 2: Cursor 系列 (Cursor IDE / Agent) */}
++            <div className="p-4 bg-gray-50/70 dark:bg-base-200/60 rounded-xl border border-gray-200/70 dark:border-base-300 space-y-4">
++                {/* 标题栏 */}
++                <div className="flex items-center justify-between pb-3 border-b border-gray-200/60 dark:border-base-300/60">
++                    <div className="flex items-center gap-2">
++                        <Sparkles size={16} className="text-purple-500" />
++                        <span className="text-sm font-bold text-gray-900 dark:text-white">
++                            {t("proxy.agent_settings.cursor.title", { defaultValue: "Cursor 系列 (Cursor IDE / Agent)" })}
++                        </span>
++                        <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300">
++                            {t("proxy.agent_settings.cursor.tag", { defaultValue: "纯净流与流式清洗" })}
++                        </span>
++                    </div>
++                </div>
++
++                {/* Cursor 纯净流与点号清洗开关 */}
++                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
++                    <div className="space-y-0.5 max-w-xl">
++                        <div className="text-xs font-semibold text-gray-900 dark:text-white flex items-center gap-1.5">
++                            <ShieldCheck size={14} className="text-emerald-500" />
++                            {t("proxy.agent_settings.cursor.cleaner_title", {
++                                defaultValue: "Cursor 纯净流与点号清洗 (Cursor Pure Stream & Dot Cleaner)"
++                            })}
++                        </div>
++                        <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-normal">
++                            {t("proxy.agent_settings.cursor.cleaner_desc", {
++                                defaultValue: "专为 Cursor 设计，实时拦截过滤 SSE 流中的连续点号瀑布、行动过渡句（自动折叠进思考抽屉）与空心跳。在网关层双向兼容 OpenAI Responses / Chat Completions 与 Anthropic Messages 协议，彻底消除 Composer 白屏与空思考块异常。"
++                            })}
++                        </p>
++                    </div>
++                    <label className="relative inline-flex items-center cursor-pointer select-none shrink-0">
++                        <input
++                            type="checkbox"
++                            checked={cursorCleaner ?? false}
++                            onChange={(e) => onCursorCleanerChange?.(e.target.checked)}
++                            className="sr-only peer"
++                        />
++                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-hidden rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-purple-600"></div>
++                    </label>
++                </div>
++            </div>
++
+             {/* 保存按钮 */}
+             {onSave && (
+                 <div className="flex justify-end pt-2">
 diff --git a/src/components/settings/ThinkingBudget.tsx b/src/components/settings/ThinkingBudget.tsx
-index b433ee7e..de004bc5 100644
+index e846b6c8..3b31d12e 100644
 --- a/src/components/settings/ThinkingBudget.tsx
 +++ b/src/components/settings/ThinkingBudget.tsx
 @@ -1,4 +1,5 @@
@@ -3128,7 +3155,7 @@ index b433ee7e..de004bc5 100644
  import { useTranslation, Trans } from "react-i18next";
  import { Save, Check, ChevronDown, Layers, HelpCircle, HardDrive, Trash2, AlertTriangle } from "lucide-react";
  import { request } from "../../utils/request";
-@@ -428,8 +429,11 @@ export default function ThinkingBudget({
+@@ -440,8 +441,11 @@ export default function ThinkingBudget({
  
              {/* 0. 服务端思考块回填 (Server-side Thought & Signature Restoration) */}
              {onThinkingStoreChange && (
@@ -3142,7 +3169,7 @@ index b433ee7e..de004bc5 100644
                          <div className="flex items-center gap-2">
                              <span className="text-xs font-bold text-gray-900 dark:text-white">
                                  {t("proxy.config.thinking_budget.store_enabled", { defaultValue: "服务端思考块与签名回填" })}
-@@ -446,8 +450,9 @@ export default function ThinkingBudget({
+@@ -458,8 +462,9 @@ export default function ThinkingBudget({
                      </div>
                      <input
                          type="checkbox"
@@ -3153,7 +3180,7 @@ index b433ee7e..de004bc5 100644
                          onChange={(e) => onThinkingStoreChange(e.target.checked)}
                      />
                  </div>
-@@ -1244,9 +1249,9 @@ export default function ThinkingBudget({
+@@ -1280,9 +1285,9 @@ export default function ThinkingBudget({
              )}
  
              {/* 清空思考块二次确认弹窗 */}
@@ -3166,7 +3193,7 @@ index b433ee7e..de004bc5 100644
                          <div className="flex items-start gap-3">
                              <div className="p-2 rounded-full bg-error/10 text-error shrink-0 mt-0.5">
                                  <AlertTriangle size={20} />
-@@ -1299,10 +1304,11 @@ export default function ThinkingBudget({
+@@ -1335,10 +1340,11 @@ export default function ThinkingBudget({
                          </div>
                      </div>
                      <div
@@ -3181,10 +3208,29 @@ index b433ee7e..de004bc5 100644
          </div>
      );
 diff --git a/src/locales/en.json b/src/locales/en.json
-index ee2a60f1..f04ae8ce 100644
+index 39b37f6a..7b1bc1b6 100644
 --- a/src/locales/en.json
 +++ b/src/locales/en.json
-@@ -918,6 +918,10 @@
+@@ -684,7 +684,17 @@
+       "update_dialog_title": "New Version Available",
+       "update_confirm_desc": "A new version is available. Would you like to download and update now? The app will automatically restart once downloaded.",
+       "current_version": "Current Version",
+-      "latest_version_label": "Latest Version"
++      "latest_version_label": "Latest Version",
++      "rebuild_btn": "Rebuild from Source (Keep Patches)",
++      "rebuild_btn_short": "Source Rebuild Update",
++      "rebuilding": "Launching Terminal...",
++      "rebuild_triggered_success": "Update and rebuild script launched in independent terminal (update_and_rebuild.sh)",
++      "rebuild_failed": "Failed to launch build",
++      "local_rebuild_tooltip": "Pull latest upstream code, retain/apply patches, and recompile",
++      "local_rebuild_card_title": "Recommended: Rebuild from Source (update_and_rebuild.sh)",
++      "patch_safe": "Preserves Local & Cursor Patches",
++      "local_rebuild_card_desc": "If you are using customized patches or Cursor Pure Stream & Stream Sanitization, updating via source rebuild is recommended. The script pulls the latest version in an isolated terminal, merges optimized patches, and recompiles, preventing prebuilt binaries from overwriting your patches.",
++      "run_rebuild_now": "Execute Rebuild in Terminal"
+     },
+     "advanced_thinking": {
+       "title": "Advanced Thinking & Global Config",
+@@ -939,6 +949,10 @@
        "experimental": {
          "title": "Experimental Settings",
          "title_tooltip": "Exploratory features that may be adjusted or removed in future versions.",
@@ -3195,7 +3241,7 @@ index ee2a60f1..f04ae8ce 100644
          "enable_usage_scaling": "Enable Usage Scaling",
          "enable_usage_scaling_tooltip": "For all compatible protocols (Claude/OpenAI/Gemini). Enables aggressive scaling and multi-phase context compression when total input exceeds 30k tokens. Note: Reported usage will not reflect actual billing after enabling.",
          "compression_level_label": "Context Compression Level",
-@@ -1034,6 +1038,8 @@
+@@ -1055,6 +1069,8 @@
          "claude_default_hint": "Official default mode enabled: adheres to standard Anthropic specifications without custom limits.",
          "store_enabled": "Server-side Thought & Signature Restoration",
          "store_enabled_desc": "Automatically captures and persists reasoning blocks and encrypted signatures. When client agents (e.g. Cline, Roo, Claude Code) omit thought content in multi-turn chats, the gateway restores them to prevent upstream 400 errors or context loss.",
@@ -3204,11 +3250,66 @@ index ee2a60f1..f04ae8ce 100644
          "default_on_tag": "Default On",
          "claude_thinking_note": "💡 Claude Model Note: Anthropic official models only differentiate between `-thinking` (e.g. claude-3-7-sonnet-thinking) and standard models. This custom budget specifically manages quotas for thinking models; calling standard models will not trigger upstream reasoning.",
          "max_memory_turns_label": "Max Memory Thinking Turns per Session",
+@@ -1118,7 +1134,24 @@
+         "title": "Multimodal Settings"
+       },
+       "agent_settings": {
+-        "title": "Specific Agent Settings"
++        "title": "Specific Agent Settings",
++        "banner_title": "Specific Agent Dedicated Features & Optimization",
++        "banner_desc": "Provides non-intrusive gateway-level scheduling tailored to client quirks and sandbox limitations for major agents (Claude Desktop, Claude Code, Cursor, Cline, etc.). Kept pure by default, intervening only on targeted agent traffic when enabled.",
++        "claude_desktop": {
++          "title": "Claude Desktop Series",
++          "tag": "Cowork Mode Only",
++          "auto_compact_title": "Cowork Auto Reactive Compact",
++          "auto_compact_desc": "Addresses persistent stalls where Cowork cannot run /compact, bypasses local config, and balloons context to 200k+ with frequent full screenshots. When enabled, dual backend verification triggers the client's internal Summarizer with compact_boundary, folding screenshots and history to restore sub-second responses. Off by default for full 1M Gemini context.",
++          "threshold_label": "Compact Trigger Threshold (Tokens)",
++          "threshold_desc": "Triggers self-healing when estimated Cowork session token level reaches this threshold. Full screenshots converted accurately (~1600 tokens/image).",
++          "safety_note": "Dual Backend Safety: ① Only activates for sessions explicitly presenting mcp__cowork tools, zero false positives for standard CLI/Cursor; ② Compaction summary requests bearing x-stainless-helper: compaction or official signatures pass through unconditionally."
++        },
++        "cursor": {
++          "title": "Cursor Series (Cursor IDE / Agent)",
++          "tag": "Pure Stream & Sanitization",
++          "cleaner_title": "Cursor Pure Stream & Dot Cleaner",
++          "cleaner_desc": "Tailored for Cursor to intercept continuous dot cascades, action transitions (collapsed into thinking drawers), and empty heartbeats across SSE streams in real time. Bidirectionally normalizes OpenAI Responses/Chat and Anthropic Messages at the gateway to eliminate Composer blank screens and empty block errors."
++        }
+       }
+     },
+     "cloudflared": {
+@@ -1621,6 +1654,9 @@
+     "restart_prompt": "Update is ready. Restart the app to apply changes.",
+     "btn_restart": "Restart Now",
+     "btn_later": "Later",
++    "btn_rebuild": "Source Rebuild (Keep Patches)",
++    "rebuilding": "Launching Terminal...",
++    "rebuild_launched": "Update and rebuild script launched in independent terminal (update_and_rebuild.sh)",
+     "toast": {
+       "not_ready": "Update artifacts are not ready yet. Will retry later.",
+       "failed": "Auto-update failed"
 diff --git a/src/locales/zh-TW.json b/src/locales/zh-TW.json
-index 846d9cbc..c857095f 100644
+index 04078d6f..3572b656 100644
 --- a/src/locales/zh-TW.json
 +++ b/src/locales/zh-TW.json
-@@ -894,6 +894,10 @@
+@@ -639,7 +639,17 @@
+       "update_dialog_title": "發現新版本可用",
+       "update_confirm_desc": "檢測到有新版本發布。是否立即下載更新？用戶端將在下載完成後自動熱重新啟動以套用更新。",
+       "current_version": "目前版本",
+-      "latest_version_label": "最新版本"
++      "latest_version_label": "最新版本",
++      "rebuild_btn": "原始碼更新與重構 (保留補丁)",
++      "rebuild_btn_short": "原始碼建構更新",
++      "rebuilding": "正在啟動終端機...",
++      "rebuild_triggered_success": "已在獨立終端機啟動原始碼更新與建構 (update_and_rebuild.sh)",
++      "rebuild_failed": "啟動建構失敗",
++      "local_rebuild_tooltip": "拉取最新代碼並保留/套用補丁重新編譯安裝",
++      "local_rebuild_card_title": "推薦：原始碼更新與建構 (update_and_rebuild.sh)",
++      "patch_safe": "保留本地與Cursor補丁",
++      "local_rebuild_card_desc": "如果您自定義了功能補丁或使用了 Cursor 純淨流與流式清洗治理，建議使用原始碼建構更新。指令碼將在獨立終端機中拉取上游最新版本、自動合併優化補丁並重新編譯安裝，避免官方安裝包覆蓋補丁。",
++      "run_rebuild_now": "在終端機中執行更新與重構"
+     },
+     "debug": {
+       "debug_logging": "除錯日誌",
+@@ -898,6 +908,10 @@
        "experimental": {
          "title": "實驗性設定 (Experimental)",
          "title_tooltip": "探索性功能，可能在未來版本中調整或移除。",
@@ -3219,7 +3320,7 @@ index 846d9cbc..c857095f 100644
          "enable_usage_scaling": "啟用用量縮放",
          "enable_usage_scaling_tooltip": "支援所有相容協定 (Claude/OpenAI/Gemini)。當總輸入超過 30k Token 時開啟激進縮放與分階段上下文去噪提純，防止在大上下文下頻繁觸發用戶端壓縮。注意：開啟後用戶端顯示的用量不再代表實際計費點數。",
          "compression_level_label": "智能上下文壓縮等級",
-@@ -1003,6 +1007,8 @@
+@@ -1007,6 +1021,8 @@
          "claude_default_hint": "已啟用官方預設模式：完全按官方協議規範透傳，不注入額外自訂預算限制。",
          "store_enabled": "伺服端思考塊與簽名回填",
          "store_enabled_desc": "自動攔截並持久化思考過程與加密簽名；當商業 Agent（如 Cline, Roo, Claude Code 等）多輪對話未帶回思考時由伺服端自動補齊，杜絕上游 400 報錯或上下文遺失。",
@@ -3228,11 +3329,69 @@ index 846d9cbc..c857095f 100644
          "default_on_tag": "預設開啟",
          "claude_thinking_note": "💡 Claude 模型說明：Anthropic 官方模型列表僅區分帶 `-thinking`（如 claude-3-7-sonnet-thinking）與普通模型。本自訂預算專門控制帶 thinking 模型的思考配額；若調用普通非 thinking 模型，上游不產生思考過程。",
          "max_memory_turns_label": "每輪對話的記憶體 Thinking 儲存最大輪次",
+@@ -1066,6 +1082,26 @@
+       "prompt_multimodal": {
+         "title": "全域提示詞與多模態設定 (Prompt & Multimodal)"
+       },
++      "agent_settings": {
++        "title": "特定 Agent 配置 (Specific Agent Settings)",
++        "banner_title": "特定 Agent 專屬特性與優化治理",
++        "banner_desc": "針對主流智能體（Claude Desktop、Claude Code、Cursor、Cline 等）的客戶端特異性機制與沙盒限制，提供非侵入式的網關級排程協同。預設保持純淨線纜，僅在啟用後對指定 Agent 流量精準介入。",
++        "claude_desktop": {
++          "title": "Claude Desktop 系列",
++          "tag": "Cowork 模式專屬",
++          "auto_compact_title": "Cowork 模式自動響應式壓縮自癒 (Auto Reactive Compact)",
++          "auto_compact_desc": "針對 Cowork 模式無法敲擊 /compact 且沙盒旁路本地設定、高頻全螢幕截圖導致上下文迅速膨脹至 200k+（單次 JSON 達 20~36MB）引發數十秒卡頓的頑疾。開啟後，網關在後台實行雙重確權校驗（嚴格識別 Cowork 會話並對壓縮總結請求無條件豁免放行），就地觸發客戶端內建 Summarizer 自動打上 compact_boundary 摺疊歷史與截圖，恢復秒級極速響應。預設關閉以完整享受 Gemini 100萬 Token 超長上下文。",
++          "threshold_label": "壓縮觸發門限 (Tokens)",
++          "threshold_desc": "當 Cowork 會話預估 Token 水位達到此數值時觸發自癒訊號。全螢幕截圖按官方規格精準折算（~1600 tokens/張）。",
++          "safety_note": "後台雙重安全校驗：① 僅對 tools 顯式包含 mcp__cowork 的桌面會話生效，普通 CLI / Cursor 絕對零誤傷；② 對攜帶 x-stainless-helper: compaction 或 Prompt 包含官方壓縮簽名的總結請求無條件放行，絕對杜絕卡死會話。"
++        },
++        "cursor": {
++          "title": "Cursor 系列 (Cursor IDE / Agent)",
++          "tag": "純淨流與流式清洗",
++          "cleaner_title": "Cursor 純淨流與點號清洗 (Cursor Pure Stream & Dot Cleaner)",
++          "cleaner_desc": "專為 Cursor 設計，即時攔截過濾 SSE 流中的連續點號瀑布、行動過渡句（自動摺疊進思考抽屜）與空心跳。在網關層雙向相容 OpenAI Responses / Chat Completions 與 Anthropic Messages 協議，徹底消除 Composer 白屏與空思考區塊異常。"
++        }
++      },
+       "log_retention_title": "請求日誌保留",
+       "log_retention_body_hours": "請求主體保留小時數",
+       "log_retention_storage_gb": "請求日誌上限 (GB)",
+@@ -1607,7 +1643,10 @@
+     },
+     "restart_prompt": "更新已準備就緒，重新啟動應用程式後即可完成升級。",
+     "btn_restart": "立即重新啟動",
+-    "btn_later": "稍後"
++    "btn_later": "稍後",
++    "btn_rebuild": "原始碼重構更新 (保留補丁)",
++    "rebuilding": "正在啟動終端機...",
++    "rebuild_launched": "已在獨立終端機啟動原始碼更新與建構 (update_and_rebuild.sh)"
+   },
+   "login": {
+     "title": "安全存取控制",
 diff --git a/src/locales/zh.json b/src/locales/zh.json
-index d1533337..6b53ddcc 100644
+index 4f4c21a7..d56c9695 100644
 --- a/src/locales/zh.json
 +++ b/src/locales/zh.json
-@@ -909,6 +909,10 @@
+@@ -682,7 +682,17 @@
+       "update_dialog_title": "发现新版本可用",
+       "update_confirm_desc": "检测到有新版本发布。是否立即下载更新？客户端将在下载完成后自动热重启以应用更新。",
+       "current_version": "当前版本",
+-      "latest_version_label": "最新版本"
++      "latest_version_label": "最新版本",
++      "rebuild_btn": "源码更新与重构 (保留补丁)",
++      "rebuild_btn_short": "源码构建更新",
++      "rebuilding": "正在启动终端...",
++      "rebuild_triggered_success": "已在独立终端启动源码更新与构建 (update_and_rebuild.sh)",
++      "rebuild_failed": "启动构建失败",
++      "local_rebuild_tooltip": "拉取最新代码并保留/应用补丁重新编译安装",
++      "local_rebuild_card_title": "推荐：源码更新与构建 (update_and_rebuild.sh)",
++      "patch_safe": "保留本地与Cursor补丁",
++      "local_rebuild_card_desc": "如果您自定义了功能补丁或使用了 Cursor 纯净流与流式清洗治理，建议使用源码构建更新。脚本将在独立终端中拉取上游最新版本、自动合并优化补丁并重新编译安装，避免官方安装包覆盖补丁。",
++      "run_rebuild_now": "在终端中执行更新与重构"
+     },
+     "advanced_thinking": {
+       "title": "高级思维与全局配置",
+@@ -930,6 +940,10 @@
        "experimental": {
          "title": "实验性设置 (Experimental)",
          "title_tooltip": "探索性功能，可能在未来版本中调整或移除。",
@@ -3243,7 +3402,7 @@ index d1533337..6b53ddcc 100644
          "enable_usage_scaling": "启用用量缩放",
          "enable_usage_scaling_tooltip": "支持所有兼容协议 (Claude/OpenAI/Gemini)。当总输入超过 30k Token 时开启激进缩放与分阶段上下文去噪提纯，防止在大上下文下频繁触发客户端压缩。注意：开启后客户端显示的用量不再代表实际计费点数。",
          "compression_level_label": "智能上下文压缩等级",
-@@ -1025,6 +1029,8 @@
+@@ -1046,6 +1060,8 @@
          "claude_default_hint": "已启用官方默认模式：完全按官方协议规范透传，不注入额外自定义预算限制。",
          "store_enabled": "服务端思考块与签名回填",
          "store_enabled_desc": "自动截获并持久化思考过程与加密签名；当商业 Agent（如 Cline, Roo, Claude Code 等）多轮对话未带回思考时由服务端自动补齐，杜绝上游 400 报错或上下文丢失。",
@@ -3252,6 +3411,44 @@ index d1533337..6b53ddcc 100644
          "default_on_tag": "默认开启",
          "claude_thinking_note": "💡 Claude 模型说明：Anthropic 官方模型列表仅区分带 `-thinking`（如 claude-3-7-sonnet-thinking）与普通模型。本自定义预算专门控制带 thinking 模型的思考配额；若调用普通非 thinking 模型，上游不产生思考过程。",
          "max_memory_turns_label": "每轮对话的内存 Thinking 存储最大轮次",
+@@ -1109,7 +1125,24 @@
+         "title": "多模态交互设置 (Multimodal Settings)"
+       },
+       "agent_settings": {
+-        "title": "特定 Agent 配置 (Specific Agent Settings)"
++        "title": "特定 Agent 配置 (Specific Agent Settings)",
++        "banner_title": "特定 Agent 专属特性与优化治理",
++        "banner_desc": "针对主流智能体（Claude Desktop、Claude Code、Cursor、Cline 等）的客户端特异性机制与沙箱限制，提供非侵入式的网关级调度协同。默认保持纯净线缆，仅在启用后对指定 Agent 流量精准介入。",
++        "claude_desktop": {
++          "title": "Claude Desktop 系列",
++          "tag": "Cowork 模式专属",
++          "auto_compact_title": "Cowork 模式自动响应式压缩自愈 (Auto Reactive Compact)",
++          "auto_compact_desc": "针对 Cowork 模式无法敲击 /compact 且沙箱旁路本地配置、高频全屏截屏导致上下文迅速膨胀至 200k+（单次 JSON 达 20~36MB）引发几十秒卡顿的顽疾。开启后，网关在后台实行双重确权校验（严格识别 Cowork 会话并对压缩总结请求无条件豁免放行），就地触发客户端内置 Summarizer 自动打上 compact_boundary 折叠历史与截图，恢复秒级极速响应。默认关闭以完整享受 Gemini 100万 Token 超长上下文。",
++          "threshold_label": "压缩触发门限 (Tokens)",
++          "threshold_desc": "当 Cowork 会话预估 Token 水位达到此数值时触发自愈信号。全屏截图按官方规格精准折算（~1600 tokens/张）。",
++          "safety_note": "后台双重安全校验：① 仅对 tools 显式包含 mcp__cowork 的桌面会话生效，普通 CLI / Cursor 绝对零误伤；② 对携带 x-stainless-helper: compaction 或 Prompt 包含官方压缩签名的总结请求无条件放行，绝对杜绝卡死会话。"
++        },
++        "cursor": {
++          "title": "Cursor 系列 (Cursor IDE / Agent)",
++          "tag": "纯净流与流式清洗",
++          "cleaner_title": "Cursor 纯净流与点号清洗 (Cursor Pure Stream & Dot Cleaner)",
++          "cleaner_desc": "专为 Cursor 设计，实时拦截过滤 SSE 流中的连续点号瀑布、行动过渡句（自动折叠进思考抽屉）与空心跳。在网关层双向兼容 OpenAI Responses / Chat Completions 与 Anthropic Messages 协议，彻底消除 Composer 白屏与空思考块异常。"
++        }
+       }
+     },
+     "cloudflared": {
+@@ -1590,7 +1623,10 @@
+     },
+     "restart_prompt": "更新已准备就绪，重启应用后即可完成升级。",
+     "btn_restart": "立即重启",
+-    "btn_later": "稍后"
++    "btn_later": "稍后",
++    "btn_rebuild": "源码重构更新 (保留补丁)",
++    "rebuilding": "正在启动终端...",
++    "rebuild_launched": "已在独立终端启动源码更新与构建 (update_and_rebuild.sh)"
+   },
+   "login": {
+     "title": "安全访问控制",
 diff --git a/src/pages/Accounts.tsx b/src/pages/Accounts.tsx
 index b6a108e0..ff28319b 100644
 --- a/src/pages/Accounts.tsx
@@ -3362,10 +3559,10 @@ index b6a108e0..ff28319b 100644
              title={
                selectedIds.size > 0
 diff --git a/src/pages/ApiProxy.tsx b/src/pages/ApiProxy.tsx
-index 194e533f..dd02b807 100644
+index 3c855c1f..eec92964 100644
 --- a/src/pages/ApiProxy.tsx
 +++ b/src/pages/ApiProxy.tsx
-@@ -772,6 +772,48 @@ export default function ApiProxy() {
+@@ -748,6 +748,23 @@ export default function ApiProxy() {
          saveConfig(newConfig);
      };
  
@@ -3386,101 +3583,62 @@ index 194e533f..dd02b807 100644
 +        }
 +    };
 +
-+    const handleToggleThinkingStore = async (enabled: boolean) => {
-+        if (!appConfig) return;
-+        const newConfig = {
-+            ...appConfig,
-+            proxy: {
-+                ...appConfig.proxy,
-+                experimental: {
-+                    ...(appConfig.proxy.experimental || {
-+                        enable_usage_scaling: true,
-+                        context_compression_threshold_l1: 0.4,
-+                        context_compression_threshold_l2: 0.55,
-+                        context_compression_threshold_l3: 0.7
-+                    }),
-+                    thinking_store_enabled: enabled
-+                }
-+            }
-+        };
-+        await saveConfig(newConfig);
-+        if (enabled) {
-+            showToast(t('proxy.config.thinking_budget.store_enabled_started', { defaultValue: '服务端思考块与签名回填已启动' }), 'success');
-+        } else {
-+            showToast(t('proxy.config.thinking_budget.store_enabled_stopped', { defaultValue: '服务端思考块与签名回填已停止' }), 'success');
-+        }
-+    };
-+
      const updateCircuitBreakerConfig = (newBreakerConfig: CircuitBreakerConfig) => {
          if (!appConfig) return;
          const newConfig = {
-@@ -2164,9 +2206,7 @@ print(response.choices[0].message.content)`;
-                                     onChange={(tbConfig) => updateProxyConfig({ thinking_budget: tbConfig })}
-                                     onSave={handleSaveProxySettings}
-                                     thinkingStoreEnabled={appConfig.proxy.experimental?.thinking_store_enabled !== false}
--                                    onThinkingStoreChange={(enabled) =>
--                                        updateExperimentalConfig({ thinking_store_enabled: enabled })
--                                    }
-+                                    onThinkingStoreChange={handleToggleThinkingStore}
-                                     thinkingMaxMemoryTurns={appConfig.proxy.experimental?.thinking_max_memory_turns ?? 600}
-                                     onThinkingMaxMemoryTurnsChange={(turns: number) =>
-                                         updateExperimentalConfig({ thinking_max_memory_turns: turns })
-@@ -2602,6 +2642,36 @@ print(response.choices[0].message.content)`;
-                                 icon={<Sparkles size={18} className="text-purple-500" />}
-                             >
-                                 <div className="space-y-4">
-+                                    {/* Cursor 纯净流与点号清洗 */}
-+                                    <div
-+                                        className="flex items-center justify-between p-4 bg-gray-50 dark:bg-base-200 rounded-xl border border-gray-100 dark:border-base-300 cursor-pointer hover:bg-gray-100/70 dark:hover:bg-base-300/50 transition-colors"
-+                                        onClick={() => handleToggleCursorCleaner(!(appConfig.proxy.cursor_cleaner ?? false))}
-+                                    >
-+                                        <div className="space-y-1 select-none">
-+                                            <div className="flex items-center gap-2">
-+                                                <span className="text-sm font-bold text-gray-900 dark:text-base-content">
-+                                                    {t('proxy.config.experimental.cursor_cleaner_label', { defaultValue: 'Cursor 纯净流与点号清洗' })}
-+                                                </span>
-+                                                <div onClick={(e) => e.stopPropagation()}>
-+                                                    <HelpTooltip text={t('proxy.config.experimental.cursor_cleaner_desc', { defaultValue: '专为 Cursor 设计，实时拦截过滤 SSE 流中的连续点号瀑布、行动过渡句（自动折叠进思考抽屉）与空心跳' })} />
-+                                                </div>
-+                                                <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/30 text-[10px] text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-200 dark:border-emerald-800">
-+                                                    Cursor / Claude / OpenAI
-+                                                </span>
-+                                            </div>
-+                                            <p className="text-[10px] text-gray-500 dark:text-gray-400 max-w-lg">
-+                                                {t('proxy.config.experimental.cursor_cleaner_desc', { defaultValue: '专为 Cursor 设计，实时拦截过滤 SSE 流中的连续点号瀑布、行动过渡句（自动折叠进思考抽屉）与空心跳' })}
-+                                            </p>
-+                                        </div>
-+                                        <input
-+                                            type="checkbox"
-+                                            className="toggle toggle-sm bg-gray-200 dark:bg-base-300 border-gray-300 dark:border-base-300 checked:bg-blue-600 checked:border-blue-600 cursor-pointer"
-+                                            checked={appConfig.proxy.cursor_cleaner ?? false}
-+                                            onClick={(e) => e.stopPropagation()}
-+                                            onChange={(e) => handleToggleCursorCleaner(e.target.checked)}
-+                                        />
-+                                    </div>
-+
-                                     <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-base-200 rounded-xl border border-gray-100 dark:border-base-300">
-                                         <div className="space-y-1">
-                                             <div className="flex items-center gap-2">
+@@ -2079,6 +2096,8 @@ print(response.choices[0].message.content)`;
+                                     <AgentSettings
+                                         experimentalConfig={appConfig.proxy.experimental}
+                                         onChange={updateExperimentalConfig}
++                                        cursorCleaner={appConfig.proxy.cursor_cleaner ?? false}
++                                        onCursorCleanerChange={handleToggleCursorCleaner}
+                                         onSave={handleSaveProxySettings}
+                                     />
+                                 </CollapsibleCard>
 diff --git a/src/pages/Settings.tsx b/src/pages/Settings.tsx
-index 06786db0..0a6dd878 100644
+index a31d7d86..5378cf2c 100644
 --- a/src/pages/Settings.tsx
 +++ b/src/pages/Settings.tsx
-@@ -1,4 +1,5 @@
+@@ -1,5 +1,6 @@
  import { useState, useEffect, startTransition } from 'react';
+-import { Save, Github, User, MessageCircle, ExternalLink, RefreshCw, Heart, Coffee, LayoutDashboard, Users, Network, Activity, BarChart3, Settings as SettingsIcon, Lock, CheckCircle2, Globe, Send, KeyRound } from 'lucide-react';
 +import { createPortal } from 'react-dom';
- import { Save, Github, User, MessageCircle, ExternalLink, RefreshCw, Heart, Coffee, LayoutDashboard, Users, Network, Activity, BarChart3, Settings as SettingsIcon, Lock, CheckCircle2, Globe, Send } from 'lucide-react';
++import { Save, Github, User, MessageCircle, ExternalLink, RefreshCw, Heart, Coffee, LayoutDashboard, Users, Network, Activity, BarChart3, Settings as SettingsIcon, Lock, CheckCircle2, Globe, Send, KeyRound, Terminal } from 'lucide-react';
  import { request as invoke } from '../utils/request';
  import { open } from '@tauri-apps/plugin-dialog';
-@@ -42,6 +43,7 @@ function Settings() {
+ import { useConfigStore } from '../stores/useConfigStore';
+@@ -40,6 +41,7 @@ function Settings() {
+     const { t, i18n } = useTranslation();
+     const { config, loadConfig, saveConfig, updateLanguage, updateTheme } = useConfigStore();
      const { enable, disable, isEnabled } = useDebugConsole();
-     const [activeTab, setActiveTab] = useState<'general' | 'account' | 'proxy' | 'advanced' | 'debug' | 'about'>('general');
-     const [appVersion, setAppVersion] = useState<string>('4.8.4');
 +    const [isSaving, setIsSaving] = useState(false);
+     const [activeTab, setActiveTab] = useState<'general' | 'account' | 'proxy' | 'advanced' | 'debug' | 'about'>('general');
+     const [appVersion, setAppVersion] = useState<string>('4.9.0');
      const [formData, setFormData] = useState<AppConfig>({
-         language: 'zh',
-         theme: 'system',
-@@ -182,6 +184,8 @@ function Settings() {
+@@ -129,6 +131,10 @@ function Settings() {
+     const [isBrewSuccessOpen, setIsBrewSuccessOpen] = useState(false);
+     const [isUpdateConfirmOpen, setIsUpdateConfirmOpen] = useState(false);
+ 
++    // Source rebuild state (update_and_rebuild.sh)
++    const [isRebuildAvailable, setIsRebuildAvailable] = useState(false);
++    const [isRebuilding, setIsRebuilding] = useState(false);
++
+ 
+     useEffect(() => {
+         loadConfig();
+@@ -171,6 +177,11 @@ function Settings() {
+                 .catch(err => console.error('Failed to check Homebrew installation:', err));
+         }
+ 
++        // 检测本地源码更新与重构脚本 (update_and_rebuild.sh) 是否可用
++        invoke<boolean>('check_rebuild_available')
++            .then(available => setIsRebuildAvailable(available))
++            .catch(() => setIsRebuildAvailable(false));
++
+     }, [loadConfig]);
+ 
+     useEffect(() => {
+@@ -182,6 +193,8 @@ function Settings() {
      // 删除自动启用调试控制台的逻辑 - 改为用户手动控制
  
      const handleSave = async () => {
@@ -3489,7 +3647,7 @@ index 06786db0..0a6dd878 100644
          try {
              // 校验：如果启用了上游代理但没有填写地址，给出提示
              const proxyEnabled = formData.proxy?.upstream_proxy?.enabled;
-@@ -200,6 +204,8 @@ function Settings() {
+@@ -200,6 +213,8 @@ function Settings() {
              }
          } catch (error) {
              showToast(`${t('common.error')}: ${error}`, 'error');
@@ -3498,7 +3656,28 @@ index 06786db0..0a6dd878 100644
          }
      };
  
-@@ -534,11 +540,16 @@ function Settings() {
+@@ -430,6 +445,20 @@ function Settings() {
+         }
+     };
+ 
++    const handleTriggerLocalRebuild = async () => {
++        setIsRebuilding(true);
++        try {
++            const channel = formData.update_channel || 'stable';
++            await invoke('trigger_local_rebuild', { channel });
++            showToast(t('settings.about.rebuild_triggered_success', { defaultValue: '已在独立终端启动源码更新与构建 (update_and_rebuild.sh)' }), 'success');
++            setIsUpdateConfirmOpen(false);
++        } catch (error) {
++            showToast(`${t('settings.about.rebuild_failed', { defaultValue: '启动构建失败' })}: ${error}`, 'error');
++        } finally {
++            setIsRebuilding(false);
++        }
++    };
++
+     // Handle opening cache clear dialog
+     const handleOpenClearCacheDialog = async () => {
+         try {
+@@ -534,11 +563,16 @@ function Settings() {
                      </div>
  
                      <button
@@ -3518,7 +3697,7 @@ index 06786db0..0a6dd878 100644
                      </button>
                  </div>
  
-@@ -1557,7 +1568,7 @@ function Settings() {
+@@ -1589,7 +1623,7 @@ function Settings() {
  
                                      {/* GitHub Card */}
                                      <a
@@ -3527,7 +3706,96 @@ index 06786db0..0a6dd878 100644
                                          target="_blank"
                                          rel="noreferrer"
                                          className="bg-white dark:bg-base-100 p-4 rounded-2xl border border-gray-100 dark:border-base-300 shadow-sm hover:shadow-md hover:border-gray-300 dark:hover:border-gray-600 transition-all group flex flex-col items-center text-center gap-3 cursor-pointer"
-@@ -1918,56 +1929,59 @@ function Settings() {
+@@ -1705,14 +1739,28 @@ function Settings() {
+ 
+                                 {/* Check for Updates */}
+                                 <div className="flex flex-col items-center gap-3">
+-                                    <button
+-                                        onClick={handleCheckUpdate}
+-                                        disabled={isCheckingUpdate}
+-                                        className="px-6 py-2.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white rounded-lg transition-all flex items-center gap-2 shadow-sm hover:shadow-md disabled:cursor-not-allowed"
+-                                    >
+-                                        <RefreshCw className={`w-4 h-4 ${isCheckingUpdate ? 'animate-spin' : ''}`} />
+-                                        {isCheckingUpdate ? t('settings.about.checking_update') : t('settings.about.check_update')}
+-                                    </button>
++                                    <div className="flex items-center gap-2.5 flex-wrap justify-center">
++                                        <button
++                                            onClick={handleCheckUpdate}
++                                            disabled={isCheckingUpdate}
++                                            className="px-6 py-2.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white rounded-lg transition-all flex items-center gap-2 shadow-sm hover:shadow-md disabled:cursor-not-allowed text-sm font-medium"
++                                        >
++                                            <RefreshCw className={`w-4 h-4 ${isCheckingUpdate ? 'animate-spin' : ''}`} />
++                                            {isCheckingUpdate ? t('settings.about.checking_update') : t('settings.about.check_update')}
++                                        </button>
++
++                                        {isRebuildAvailable && (
++                                            <button
++                                                onClick={handleTriggerLocalRebuild}
++                                                disabled={isRebuilding}
++                                                className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white rounded-lg transition-all flex items-center gap-2 shadow-sm hover:shadow-md disabled:cursor-not-allowed text-sm font-medium"
++                                                title={t('settings.about.local_rebuild_tooltip', { defaultValue: '拉取最新代码并保留/应用补丁重新编译安装' })}
++                                            >
++                                                <Terminal className={`w-4 h-4 ${isRebuilding ? 'animate-spin' : ''}`} />
++                                                {isRebuilding ? t('settings.about.rebuilding', { defaultValue: '正在启动终端...' }) : t('settings.about.rebuild_btn', { defaultValue: '源码更新与重构 (保留补丁)' })}
++                                            </button>
++                                        )}
++                                    </div>
+ 
+                                     {/* Update Status */}
+                                     {updateInfo && !isCheckingUpdate && (
+@@ -1754,6 +1802,16 @@ function Settings() {
+                                                                 </button>
+                                                             )
+                                                         )}
++                                                        {isRebuildAvailable && (
++                                                            <button
++                                                                onClick={handleTriggerLocalRebuild}
++                                                                disabled={isRebuilding}
++                                                                className="px-4 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg transition-all shadow-sm active:scale-95 flex items-center gap-1.5"
++                                                            >
++                                                                <Terminal className="w-3.5 h-3.5" />
++                                                                {t('settings.about.rebuild_btn_short', { defaultValue: '源码构建更新' })}
++                                                            </button>
++                                                        )}
+                                                         <a
+                                                             href={updateInfo.downloadUrl}
+                                                             target="_blank"
+@@ -1946,60 +2004,94 @@ function Settings() {
+                                 </div>
+                             )}
+                         </div>
++
++                        {/* 本地源码更新与重构推荐选项 */}
++                        {isRebuildAvailable && (
++                            <div className="mt-3 p-3 bg-purple-50/80 dark:bg-purple-950/30 rounded-xl border border-purple-200/70 dark:border-purple-800/40 text-xs space-y-2">
++                                <div className="flex items-center justify-between">
++                                    <div className="flex items-center gap-1.5 font-bold text-purple-900 dark:text-purple-300">
++                                        <Terminal className="w-4 h-4 text-purple-600 dark:text-purple-400" />
++                                        <span>{t('settings.about.local_rebuild_card_title', { defaultValue: '推荐：源码更新与构建 (update_and_rebuild.sh)' })}</span>
++                                    </div>
++                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-200/60 dark:bg-purple-900/60 text-purple-800 dark:text-purple-300 font-medium">
++                                        {t('settings.about.patch_safe', { defaultValue: '保留本地与Cursor补丁' })}
++                                    </span>
++                                </div>
++                                <p className="text-[11px] text-purple-700/90 dark:text-purple-300/90 leading-relaxed">
++                                    {t('settings.about.local_rebuild_card_desc', {
++                                        defaultValue: '如果您自定义了功能补丁或使用了 Cursor 纯净流与流式清洗治理，建议使用源码构建更新。脚本将在独立终端中拉取上游最新版本、自动合并优化补丁并重新编译安装，避免官方安装包覆盖补丁。'
++                                    })}
++                                </p>
++                                <div className="flex justify-end pt-1">
++                                    <button
++                                        type="button"
++                                        onClick={handleTriggerLocalRebuild}
++                                        disabled={isRebuilding}
++                                        className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 active:scale-95 text-white font-medium rounded-lg text-xs flex items-center gap-1.5 transition-all shadow-sm disabled:cursor-not-allowed"
++                                    >
++                                        <Terminal className="w-3.5 h-3.5" />
++                                        {isRebuilding ? t('settings.about.rebuilding', { defaultValue: '正在启动终端...' }) : t('settings.about.run_rebuild_now', { defaultValue: '在终端中执行更新与重构' })}
++                                    </button>
++                                </div>
++                            </div>
++                        )}
+                     </div>
                  </ModalDialog>
  
                  {/* Support Modal */}
@@ -3682,7 +3950,7 @@ index 34699eab..2cb3fa85 100644
          </motion.div>
      );
 diff --git a/src/types/config.ts b/src/types/config.ts
-index 12988ace..f4999f9e 100644
+index 8e6e5eba..bd3c17f5 100644
 --- a/src/types/config.ts
 +++ b/src/types/config.ts
 @@ -27,6 +27,7 @@ export interface ProxyConfig {
@@ -3691,5 +3959,18 @@ index 12988ace..f4999f9e 100644
      only_raw_quota_models?: boolean; // [NEW] 是否只暴露真实配额模型
 +    cursor_cleaner?: boolean; // [NEW] Cursor 纯净流与点号清洗开关
      proxy_pool?: ProxyPoolConfig;
+     multimodal?: MultimodalConfig;
  }
+diff --git a/src/utils/request.ts b/src/utils/request.ts
+index f7ec125d..29f4a05b 100644
+--- a/src/utils/request.ts
++++ b/src/utils/request.ts
+@@ -134,6 +134,8 @@ const COMMAND_MAPPING: Record<string, { url: string; method: 'GET' | 'POST' | 'D
+   'should_check_updates': { url: '/api/system/updates/check-status', method: 'GET' },
+   'check_for_updates': { url: '/api/system/updates/check', method: 'POST' },
+   'update_last_check_time': { url: '/api/system/updates/touch', method: 'POST' },
++  'check_rebuild_available': { url: '/api/system/rebuild/status', method: 'GET' },
++  'trigger_local_rebuild': { url: '/api/system/rebuild/trigger', method: 'POST' },
  
+   // OAuth
+   'prepare_oauth_url': { url: '/api/auth/url', method: 'GET' },

@@ -710,6 +710,77 @@ pub async fn brew_upgrade_cask() -> Result<String, String> {
     }
 }
 
+/// Detect if local update_and_rebuild.sh script is available
+pub fn is_rebuild_script_available() -> bool {
+    get_rebuild_script_path().is_some()
+}
+
+/// Locate update_and_rebuild.sh in ~/Antigravity-Manager or current directory
+pub fn get_rebuild_script_path() -> Option<std::path::PathBuf> {
+    if let Some(home) = dirs::home_dir() {
+        let script = home
+            .join("Antigravity-Manager")
+            .join("update_and_rebuild.sh");
+        if script.exists() {
+            return Some(script);
+        }
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        let script = cwd.join("update_and_rebuild.sh");
+        if script.exists() {
+            return Some(script);
+        }
+    }
+    None
+}
+
+/// Execute `update_and_rebuild.sh [stable|beta]` via macOS Terminal to preserve live output and survive app quit
+#[cfg(target_os = "macos")]
+pub async fn trigger_local_rebuild(channel: Option<String>) -> Result<String, String> {
+    let script_path = get_rebuild_script_path()
+        .ok_or_else(|| "未找到 update_and_rebuild.sh 脚本文件".to_string())?;
+    let script_dir = script_path
+        .parent()
+        .ok_or_else(|| "无法获取脚本所在目录".to_string())?;
+
+    let channel_arg = match channel.as_deref() {
+        Some("beta") | Some("dev") => "beta",
+        _ => "stable",
+    };
+
+    let command_str = format!(
+        "cd \"{}\" && ./update_and_rebuild.sh {}",
+        script_dir.display(),
+        channel_arg
+    );
+
+    logger::log_info(&format!("触发本地源码一键更新与重构: {}", command_str));
+
+    // 使用 AppleScript 打开 Terminal 并在新窗口执行，保证实时日志可见且应用重启时构建进程不被连带终止
+    let apple_script = format!(
+        "tell application \"Terminal\"\nactivate\ndo script \"{}\"\nend tell",
+        command_str.replace('"', "\\\"")
+    );
+
+    let status = tokio::process::Command::new("osascript")
+        .arg("-e")
+        .arg(&apple_script)
+        .status()
+        .await
+        .map_err(|e| format!("启动终端执行脚本失败: {}", e))?;
+
+    if status.success() {
+        Ok("rebuild_launched".to_string())
+    } else {
+        Err("执行 osascript 开启终端失败".to_string())
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub async fn trigger_local_rebuild(_channel: Option<String>) -> Result<String, String> {
+    Err("本地一键重构更新目前仅支持 macOS 环境".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

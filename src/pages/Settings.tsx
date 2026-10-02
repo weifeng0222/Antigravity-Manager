@@ -1,6 +1,6 @@
 import { useState, useEffect, startTransition } from 'react';
 import { createPortal } from 'react-dom';
-import { Save, Github, User, MessageCircle, ExternalLink, RefreshCw, Heart, Coffee, LayoutDashboard, Users, Network, Activity, BarChart3, Settings as SettingsIcon, Lock, CheckCircle2, Globe, Send } from 'lucide-react';
+import { Save, Github, User, MessageCircle, ExternalLink, RefreshCw, Heart, Coffee, LayoutDashboard, Users, Network, Activity, BarChart3, Settings as SettingsIcon, Lock, CheckCircle2, Globe, Send, KeyRound, Terminal } from 'lucide-react';
 import { request as invoke } from '../utils/request';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useConfigStore } from '../stores/useConfigStore';
@@ -41,9 +41,9 @@ function Settings() {
     const { t, i18n } = useTranslation();
     const { config, loadConfig, saveConfig, updateLanguage, updateTheme } = useConfigStore();
     const { enable, disable, isEnabled } = useDebugConsole();
-    const [activeTab, setActiveTab] = useState<'general' | 'account' | 'proxy' | 'advanced' | 'debug' | 'about'>('general');
-    const [appVersion, setAppVersion] = useState<string>('4.8.4');
     const [isSaving, setIsSaving] = useState(false);
+    const [activeTab, setActiveTab] = useState<'general' | 'account' | 'proxy' | 'advanced' | 'debug' | 'about'>('general');
+    const [appVersion, setAppVersion] = useState<string>('4.9.0');
     const [formData, setFormData] = useState<AppConfig>({
         language: 'zh',
         theme: 'system',
@@ -85,7 +85,7 @@ function Settings() {
             monitored_models: []
         },
         pinned_quota_models: {
-            models: ['gemini-pro-agent', 'gemini-3-flash-agent', 'gemini-3.1-flash-image', 'claude-opus-4-6-thinking']
+            models: ['gemini-3.1-pro-high', 'gemini-3.8-flash-high', 'gemini-3.1-flash-image', 'claude-opus-4-6-thinking']
         },
         cloudflared: {
             enabled: false,
@@ -131,6 +131,10 @@ function Settings() {
     const [isBrewSuccessOpen, setIsBrewSuccessOpen] = useState(false);
     const [isUpdateConfirmOpen, setIsUpdateConfirmOpen] = useState(false);
 
+    // Source rebuild state (update_and_rebuild.sh)
+    const [isRebuildAvailable, setIsRebuildAvailable] = useState(false);
+    const [isRebuilding, setIsRebuilding] = useState(false);
+
 
     useEffect(() => {
         loadConfig();
@@ -172,6 +176,11 @@ function Settings() {
                 .then(installed => setIsBrewInstalled(installed))
                 .catch(err => console.error('Failed to check Homebrew installation:', err));
         }
+
+        // 检测本地源码更新与重构脚本 (update_and_rebuild.sh) 是否可用
+        invoke<boolean>('check_rebuild_available')
+            .then(available => setIsRebuildAvailable(available))
+            .catch(() => setIsRebuildAvailable(false));
 
     }, [loadConfig]);
 
@@ -436,6 +445,20 @@ function Settings() {
         }
     };
 
+    const handleTriggerLocalRebuild = async () => {
+        setIsRebuilding(true);
+        try {
+            const channel = formData.update_channel || 'stable';
+            await invoke('trigger_local_rebuild', { channel });
+            showToast(t('settings.about.rebuild_triggered_success', { defaultValue: '已在独立终端启动源码更新与构建 (update_and_rebuild.sh)' }), 'success');
+            setIsUpdateConfirmOpen(false);
+        } catch (error) {
+            showToast(`${t('settings.about.rebuild_failed', { defaultValue: '启动构建失败' })}: ${error}`, 'error');
+        } finally {
+            setIsRebuilding(false);
+        }
+    };
+
     // Handle opening cache clear dialog
     const handleOpenClearCacheDialog = async () => {
         try {
@@ -638,6 +661,37 @@ function Settings() {
                                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">{t('settings.general.auto_launch_desc')}</p>
                             </div>
 
+                            {isTauri() && (
+                                <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-base-200 rounded-lg border border-gray-100 dark:border-base-300">
+                                    <div>
+                                        <div className="font-medium text-gray-900 dark:text-base-content">{t('settings.general.quiet_autostart')}</div>
+                                        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{t('settings.general.quiet_autostart_desc')}</p>
+                                    </div>
+                                    <label className="relative inline-flex items-center cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            className="sr-only peer"
+                                            checked={formData.quiet_autostart !== false}
+                                            onChange={async (e) => {
+                                                const enabled = e.target.checked;
+                                                const next = { ...formData, quiet_autostart: enabled };
+                                                setFormData(next);
+                                                if (!config) {
+                                                    return;
+                                                }
+                                                try {
+                                                    await saveConfig(next);
+                                                    showToast(enabled ? t('settings.general.quiet_autostart_enabled') : t('settings.general.quiet_autostart_disabled'), 'success');
+                                                } catch (error) {
+                                                    showToast(`${t('common.error')}: ${error}`, 'error');
+                                                }
+                                            }}
+                                        />
+                                        <div className="w-11 h-6 bg-gray-200 dark:bg-base-300 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
+                                    </label>
+                                </div>
+                            )}
+
                             {/* 自动检查更新 */}
                             <>
                                 <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-base-200 rounded-lg border border-gray-100 dark:border-base-300">
@@ -735,6 +789,7 @@ function Settings() {
                                             { path: '/', label: t('nav.dashboard'), icon: LayoutDashboard },
                                             { path: '/accounts', label: t('nav.accounts'), icon: Users },
                                             { path: '/api-proxy', label: t('nav.proxy'), icon: Network },
+                                            { path: '/apikey-fun', label: t('nav.apikey_fun', '中转站'), icon: KeyRound },
                                             { path: '/monitor', label: t('nav.call_records'), icon: Activity },
                                             { path: '/token-stats', label: t('nav.token_stats'), icon: BarChart3 },
                                             { path: '/user-token', label: t('nav.user_token', 'User Tokens'), icon: Users },
@@ -1684,14 +1739,28 @@ function Settings() {
 
                                 {/* Check for Updates */}
                                 <div className="flex flex-col items-center gap-3">
-                                    <button
-                                        onClick={handleCheckUpdate}
-                                        disabled={isCheckingUpdate}
-                                        className="px-6 py-2.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white rounded-lg transition-all flex items-center gap-2 shadow-sm hover:shadow-md disabled:cursor-not-allowed"
-                                    >
-                                        <RefreshCw className={`w-4 h-4 ${isCheckingUpdate ? 'animate-spin' : ''}`} />
-                                        {isCheckingUpdate ? t('settings.about.checking_update') : t('settings.about.check_update')}
-                                    </button>
+                                    <div className="flex items-center gap-2.5 flex-wrap justify-center">
+                                        <button
+                                            onClick={handleCheckUpdate}
+                                            disabled={isCheckingUpdate}
+                                            className="px-6 py-2.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white rounded-lg transition-all flex items-center gap-2 shadow-sm hover:shadow-md disabled:cursor-not-allowed text-sm font-medium"
+                                        >
+                                            <RefreshCw className={`w-4 h-4 ${isCheckingUpdate ? 'animate-spin' : ''}`} />
+                                            {isCheckingUpdate ? t('settings.about.checking_update') : t('settings.about.check_update')}
+                                        </button>
+
+                                        {isRebuildAvailable && (
+                                            <button
+                                                onClick={handleTriggerLocalRebuild}
+                                                disabled={isRebuilding}
+                                                className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white rounded-lg transition-all flex items-center gap-2 shadow-sm hover:shadow-md disabled:cursor-not-allowed text-sm font-medium"
+                                                title={t('settings.about.local_rebuild_tooltip', { defaultValue: '拉取最新代码并保留/应用补丁重新编译安装' })}
+                                            >
+                                                <Terminal className={`w-4 h-4 ${isRebuilding ? 'animate-spin' : ''}`} />
+                                                {isRebuilding ? t('settings.about.rebuilding', { defaultValue: '正在启动终端...' }) : t('settings.about.rebuild_btn', { defaultValue: '源码更新与重构 (保留补丁)' })}
+                                            </button>
+                                        )}
+                                    </div>
 
                                     {/* Update Status */}
                                     {updateInfo && !isCheckingUpdate && (
@@ -1732,6 +1801,16 @@ function Settings() {
                                                                     {t('settings.about.upgrade_now_btn', { defaultValue: '立即自动更新' })}
                                                                 </button>
                                                             )
+                                                        )}
+                                                        {isRebuildAvailable && (
+                                                            <button
+                                                                onClick={handleTriggerLocalRebuild}
+                                                                disabled={isRebuilding}
+                                                                className="px-4 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg transition-all shadow-sm active:scale-95 flex items-center gap-1.5"
+                                                            >
+                                                                <Terminal className="w-3.5 h-3.5" />
+                                                                {t('settings.about.rebuild_btn_short', { defaultValue: '源码构建更新' })}
+                                                            </button>
                                                         )}
                                                         <a
                                                             href={updateInfo.downloadUrl}
@@ -1925,6 +2004,37 @@ function Settings() {
                                 </div>
                             )}
                         </div>
+
+                        {/* 本地源码更新与重构推荐选项 */}
+                        {isRebuildAvailable && (
+                            <div className="mt-3 p-3 bg-purple-50/80 dark:bg-purple-950/30 rounded-xl border border-purple-200/70 dark:border-purple-800/40 text-xs space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-1.5 font-bold text-purple-900 dark:text-purple-300">
+                                        <Terminal className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                                        <span>{t('settings.about.local_rebuild_card_title', { defaultValue: '推荐：源码更新与构建 (update_and_rebuild.sh)' })}</span>
+                                    </div>
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-200/60 dark:bg-purple-900/60 text-purple-800 dark:text-purple-300 font-medium">
+                                        {t('settings.about.patch_safe', { defaultValue: '保留本地与Cursor补丁' })}
+                                    </span>
+                                </div>
+                                <p className="text-[11px] text-purple-700/90 dark:text-purple-300/90 leading-relaxed">
+                                    {t('settings.about.local_rebuild_card_desc', {
+                                        defaultValue: '如果您自定义了功能补丁或使用了 Cursor 纯净流与流式清洗治理，建议使用源码构建更新。脚本将在独立终端中拉取上游最新版本、自动合并优化补丁并重新编译安装，避免官方安装包覆盖补丁。'
+                                    })}
+                                </p>
+                                <div className="flex justify-end pt-1">
+                                    <button
+                                        type="button"
+                                        onClick={handleTriggerLocalRebuild}
+                                        disabled={isRebuilding}
+                                        className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 active:scale-95 text-white font-medium rounded-lg text-xs flex items-center gap-1.5 transition-all shadow-sm disabled:cursor-not-allowed"
+                                    >
+                                        <Terminal className="w-3.5 h-3.5" />
+                                        {isRebuilding ? t('settings.about.rebuilding', { defaultValue: '正在启动终端...' }) : t('settings.about.run_rebuild_now', { defaultValue: '在终端中执行更新与重构' })}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </ModalDialog>
 

@@ -423,6 +423,17 @@ pub async fn save_config(
 
     modules::save_app_config(&config)?;
 
+    crate::modules::logger::set_internal_error_log_budget_bytes(
+        config.proxy.internal_error_log_retention.budget_bytes(),
+    );
+    if let Err(e) =
+        tokio::task::spawn_blocking(crate::modules::logger::apply_internal_error_log_retention)
+            .await
+            .map_err(|e| e.to_string())?
+    {
+        tracing::warn!("Failed to apply internal error log retention: {}", e);
+    }
+
     // 通知托盘配置已更新
     let _ = app.emit("config://updated", ());
 
@@ -430,16 +441,8 @@ pub async fn save_config(
     crate::proxy::update_thinking_budget_config(config.proxy.thinking_budget.clone());
     crate::proxy::update_global_system_prompt_config(config.proxy.global_system_prompt.clone());
     crate::proxy::update_image_thinking_mode(config.proxy.image_thinking_mode.clone());
+    crate::proxy::update_multimodal_config(config.proxy.multimodal.clone());
     crate::proxy::update_cursor_cleaner(config.proxy.cursor_cleaner);
-    crate::proxy::config::update_global_compression_level(
-        config.proxy.experimental.compression_level.clone(),
-        config.proxy.experimental.enable_usage_scaling,
-    );
-    crate::proxy::config::update_global_thresholds(
-        config.proxy.experimental.context_compression_threshold_l1,
-        config.proxy.experimental.context_compression_threshold_l2,
-        config.proxy.experimental.context_compression_threshold_l3,
-    );
     crate::proxy::config::update_global_audit_config(
         config.proxy.experimental.payload_storage_mode.clone(),
         config.proxy.experimental.log_retention_days,
@@ -454,67 +457,66 @@ pub async fn save_config(
         monitor.set_capture_health_logs(config.proxy.capture_health_logs);
     }
 
-    // 热更新正在运行的服务（后台异步执行，不阻塞配置保存的即时响应）
-    let proxy_state_clone = proxy_state.inner().clone();
-    let config_clone = config.clone();
-    tokio::spawn(async move {
-        let instance_lock = proxy_state_clone.instance.read().await;
-        if let Some(instance) = instance_lock.as_ref() {
-            // 更新模型映射
-            instance
-                .axum_server
-                .update_mapping(&config_clone.proxy)
-                .await;
-            // 更新仅暴露真实配额模型开关
-            instance
-                .axum_server
-                .update_only_raw_quota_models(config_clone.proxy.only_raw_quota_models)
-                .await;
-            // 更新 Cursor 纯净流与点号清洗开关
-            instance
-                .axum_server
-                .update_cursor_cleaner(config_clone.proxy.cursor_cleaner)
-                .await;
-            // 更新上游代理
-            instance
-                .axum_server
-                .update_proxy(config_clone.proxy.upstream_proxy.clone())
-                .await;
-            // 更新安全策略 (auth)
-            instance
-                .axum_server
-                .update_security(&config_clone.proxy)
-                .await;
-            // 更新 z.ai 配置
-            instance.axum_server.update_zai(&config_clone.proxy).await;
-            // 更新实验性配置
-            instance
-                .axum_server
-                .update_experimental(&config_clone.proxy)
-                .await;
-            // 更新调试日志配置
-            instance
-                .axum_server
-                .update_debug_logging(&config_clone.proxy)
-                .await;
-            // [NEW] 更新 User-Agent 配置
-            instance
-                .axum_server
-                .update_user_agent(&config_clone.proxy)
-                .await;
-            // 更新代理池配置
-            instance
-                .axum_server
-                .update_proxy_pool(config_clone.proxy.proxy_pool.clone())
-                .await;
-            // 更新熔断配置
-            instance
-                .token_manager
-                .update_circuit_breaker_config(config_clone.circuit_breaker.clone())
-                .await;
-            tracing::debug!("已异步完成热更新反代服务配置");
-        }
-    });
+    // 热更新正在运行的服务
+    let instance_lock = proxy_state.instance.read().await;
+    if let Some(instance) = instance_lock.as_ref() {
+        // 更新模型映射
+        instance.axum_server.update_mapping(&config.proxy).await;
+        // 更新仅暴露真实配额模型开关
+        instance
+            .axum_server
+            .update_only_raw_quota_models(config.proxy.only_raw_quota_models)
+            .await;
+        // 更新 Cursor 纯净流与点号清洗开关
+        instance
+            .axum_server
+            .update_cursor_cleaner(config.proxy.cursor_cleaner)
+            .await;
+        // 更新上游代理
+        instance
+            .axum_server
+            .update_proxy(config.proxy.upstream_proxy.clone())
+            .await;
+        // 更新安全策略 (auth)
+        instance.axum_server.update_security(&config.proxy).await;
+        // 更新实验性配置
+        instance
+            .axum_server
+            .update_experimental(&config.proxy)
+            .await;
+        // 更新调试日志配置
+        instance
+            .axum_server
+            .update_debug_logging(&config.proxy)
+            .await;
+        // [NEW] 更新 User-Agent 配置
+        instance.axum_server.update_user_agent(&config.proxy).await;
+        // 更新 Thinking Budget 配置
+        crate::proxy::update_thinking_budget_config(config.proxy.thinking_budget.clone());
+        // [NEW] 更新全局系统提示词配置
+        crate::proxy::update_global_system_prompt_config(config.proxy.global_system_prompt.clone());
+        // [NEW] 更新全局图像思维模式配置
+        crate::proxy::update_image_thinking_mode(config.proxy.image_thinking_mode.clone());
+        crate::proxy::update_multimodal_config(config.proxy.multimodal.clone());
+        crate::proxy::config::update_global_audit_config(
+            config.proxy.experimental.payload_storage_mode.clone(),
+            config.proxy.experimental.log_retention_days,
+            config.proxy.experimental.thinking_store_enabled,
+            config.proxy.experimental.thinking_retention_days,
+            Some(config.proxy.experimental.thinking_max_memory_turns),
+        );
+        // 更新代理池配置
+        instance
+            .axum_server
+            .update_proxy_pool(config.proxy.proxy_pool.clone())
+            .await;
+        // 更新熔断配置
+        instance
+            .token_manager
+            .update_circuit_breaker_config(config.circuit_breaker.clone())
+            .await;
+        tracing::debug!("已同步热更新反代服务配置");
+    }
 
     Ok(())
 }
@@ -891,6 +893,21 @@ pub async fn get_data_dir_path() -> Result<String, String> {
     Ok(modules::account::format_data_dir_path(&path))
 }
 
+/// 内部失败日志当日文件路径（按天滚动 + 容量滑动窗口）
+#[tauri::command]
+pub async fn get_internal_error_log_path() -> Result<String, String> {
+    let path = modules::logger::internal_error_log_path()?;
+    Ok(modules::account::format_data_dir_path(&path))
+}
+
+/// 内部失败日志当前占用字节数（error.log*）
+#[tauri::command]
+pub async fn get_internal_error_log_disk_size() -> Result<u64, String> {
+    tokio::task::spawn_blocking(modules::logger::internal_error_log_disk_size)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 /// 选择并迁移数据目录（指针写在家目录，删除旧目录后下次启动仍能找到）
 #[tauri::command]
 pub async fn set_data_dir(
@@ -1006,9 +1023,13 @@ pub async fn migrate_data_dir(new_path: String, clean_source: bool) -> Result<()
     Ok(())
 }
 
-/// 显示主窗口
+/// 显示主窗口。登录项的免打扰启动只跳过这一次自动显示。
 #[tauri::command]
 pub async fn show_main_window(window: tauri::Window) -> Result<(), String> {
+    if crate::modules::startup_quiet::take() {
+        tracing::info!("Skipped the automatic first window show for a quiet login launch");
+        return Ok(());
+    }
     window.show().map_err(|e| e.to_string())
 }
 
@@ -1218,6 +1239,19 @@ pub async fn check_appimage_installation() -> Result<bool, String> {
 pub async fn brew_upgrade_cask() -> Result<String, String> {
     modules::logger::log_info("收到前端触发的 Homebrew 升级请求");
     crate::modules::update_checker::brew_upgrade_cask().await
+}
+
+/// 检测本地是否存在 update_and_rebuild.sh 源码重构脚本
+#[tauri::command]
+pub async fn check_rebuild_available() -> Result<bool, String> {
+    Ok(crate::modules::update_checker::is_rebuild_script_available())
+}
+
+/// 触发本地源码拉取与一键重构 (update_and_rebuild.sh)
+#[tauri::command]
+pub async fn trigger_local_rebuild(channel: Option<String>) -> Result<String, String> {
+    modules::logger::log_info("收到前端触发的本地源码一键更新与重构请求");
+    crate::modules::update_checker::trigger_local_rebuild(channel).await
 }
 
 /// 获取更新设置
