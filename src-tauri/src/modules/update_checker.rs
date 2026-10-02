@@ -4,13 +4,13 @@ use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const GITHUB_API_URL: &str =
-    "https://api.github.com/repos/lbjlaq/Antigravity-Manager/releases/latest";
+    "https://api.github.com/repos/weifeng0222/Antigravity-Manager/releases/latest";
 const GITHUB_RELEASES_API_URL: &str =
-    "https://api.github.com/repos/lbjlaq/Antigravity-Manager/releases?per_page=15";
+    "https://api.github.com/repos/weifeng0222/Antigravity-Manager/releases?per_page=15";
 const GITHUB_RAW_URL: &str =
-    "https://raw.githubusercontent.com/lbjlaq/Antigravity-Manager/main/package.json";
+    "https://raw.githubusercontent.com/weifeng0222/Antigravity-Manager/main/package.json";
 const JSDELIVR_URL: &str =
-    "https://cdn.jsdelivr.net/gh/lbjlaq/Antigravity-Manager@main/package.json";
+    "https://cdn.jsdelivr.net/gh/weifeng0222/Antigravity-Manager@main/package.json";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const DEFAULT_CHECK_INTERVAL_HOURS: u64 = 24;
 
@@ -93,9 +93,9 @@ struct GitHubReleaseAsset {
 }
 
 pub const STABLE_UPDATER_JSON_URL: &str =
-    "https://github.com/lbjlaq/Antigravity-Manager/releases/latest/download/updater.json";
+    "https://github.com/weifeng0222/Antigravity-Manager/releases/latest/download/updater.json";
 pub const PREVIEW_UPDATER_JSON_URL: &str =
-    "https://github.com/lbjlaq/Antigravity-Manager/releases/download/preview/updater.json";
+    "https://github.com/weifeng0222/Antigravity-Manager/releases/download/preview/updater.json";
 
 pub fn get_upstream_proxy_url() -> Option<String> {
     if let Ok(config) = crate::modules::config::load_app_config() {
@@ -287,7 +287,7 @@ async fn check_updater_json_channel(channel: UpdateChannel) -> Result<UpdateInfo
     }
 
     let download_url = format!(
-        "https://github.com/lbjlaq/Antigravity-Manager/releases/tag/v{}",
+        "https://github.com/weifeng0222/Antigravity-Manager/releases/tag/v{}",
         latest_version
     );
 
@@ -474,7 +474,8 @@ async fn check_static_url(url: &str, source_name: &str) -> Result<UpdateInfo, St
     }
 
     // fallback sources generally don't provide release notes or download specific URL, construct generic
-    let download_url = "https://github.com/lbjlaq/Antigravity-Manager/releases/latest".to_string();
+    let download_url =
+        "https://github.com/weifeng0222/Antigravity-Manager/releases/latest".to_string();
     let release_notes = format!(
         "New version detected via {}. Please check release page for details.",
         source_name
@@ -707,6 +708,77 @@ pub async fn brew_upgrade_cask() -> Result<String, String> {
             Err("brew_upgrade_failed".to_string())
         }
     }
+}
+
+/// Detect if local update_and_rebuild.sh script is available
+pub fn is_rebuild_script_available() -> bool {
+    get_rebuild_script_path().is_some()
+}
+
+/// Locate update_and_rebuild.sh in ~/Antigravity-Manager or current directory
+pub fn get_rebuild_script_path() -> Option<std::path::PathBuf> {
+    if let Some(home) = dirs::home_dir() {
+        let script = home
+            .join("Antigravity-Manager")
+            .join("update_and_rebuild.sh");
+        if script.exists() {
+            return Some(script);
+        }
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        let script = cwd.join("update_and_rebuild.sh");
+        if script.exists() {
+            return Some(script);
+        }
+    }
+    None
+}
+
+/// Execute `update_and_rebuild.sh [stable|beta]` via macOS Terminal to preserve live output and survive app quit
+#[cfg(target_os = "macos")]
+pub async fn trigger_local_rebuild(channel: Option<String>) -> Result<String, String> {
+    let script_path = get_rebuild_script_path()
+        .ok_or_else(|| "未找到 update_and_rebuild.sh 脚本文件".to_string())?;
+    let script_dir = script_path
+        .parent()
+        .ok_or_else(|| "无法获取脚本所在目录".to_string())?;
+
+    let channel_arg = match channel.as_deref() {
+        Some("beta") | Some("dev") => "beta",
+        _ => "stable",
+    };
+
+    let command_str = format!(
+        "cd \"{}\" && ./update_and_rebuild.sh {}",
+        script_dir.display(),
+        channel_arg
+    );
+
+    logger::log_info(&format!("触发本地源码一键更新与重构: {}", command_str));
+
+    // 使用 AppleScript 打开 Terminal 并在新窗口执行，保证实时日志可见且应用重启时构建进程不被连带终止
+    let apple_script = format!(
+        "tell application \"Terminal\"\nactivate\ndo script \"{}\"\nend tell",
+        command_str.replace('"', "\\\"")
+    );
+
+    let status = tokio::process::Command::new("osascript")
+        .arg("-e")
+        .arg(&apple_script)
+        .status()
+        .await
+        .map_err(|e| format!("启动终端执行脚本失败: {}", e))?;
+
+    if status.success() {
+        Ok("rebuild_launched".to_string())
+    } else {
+        Err("执行 osascript 开启终端失败".to_string())
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub async fn trigger_local_rebuild(_channel: Option<String>) -> Result<String, String> {
+    Err("本地一键重构更新目前仅支持 macOS 环境".to_string())
 }
 
 #[cfg(test)]

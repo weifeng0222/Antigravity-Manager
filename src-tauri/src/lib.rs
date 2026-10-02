@@ -701,6 +701,8 @@ pub fn run() {
             commands::check_homebrew_installation,
             commands::check_appimage_installation,
             commands::brew_upgrade_cask,
+            commands::check_rebuild_available,
+            commands::trigger_local_rebuild,
             commands::get_update_settings,
             commands::save_update_settings,
             commands::should_check_updates,

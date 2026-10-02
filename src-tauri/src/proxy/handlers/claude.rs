@@ -27,7 +27,7 @@ use crate::proxy::server::AppState;
 use crate::proxy::upstream::client::mask_email;
 use axum::http::HeaderMap;
 use dashmap::DashSet;
-use std::sync::{atomic::Ordering, Arc, LazyLock};
+use std::sync::{Arc, LazyLock};
 
 /// 记录刚完成压缩总结的会话集合，提供单次续写接续免死标志 (One-Shot Post-Compaction Immunity)
 /// 彻底攻克“静态扫描消息导致一次压缩后终身免死无法再次压缩”的死穴 (Fixes #3563)
@@ -1373,6 +1373,37 @@ pub async fn handle_messages(
 
                         // 判断客户端期望的格式
                         if client_wants_stream {
+                            let combined_stream: std::pin::Pin<
+                                Box<
+                                    dyn futures::Stream<Item = Result<Bytes, std::io::Error>>
+                                        + Send,
+                                >,
+                            > = if crate::proxy::is_cursor_cleaner_enabled() {
+                                Box::pin(async_stream::stream! {
+                                    let mut cleaner = crate::proxy::common::cursor_cleaner::CursorStreamCleaner::new();
+                                    let mut s = Box::pin(combined_stream);
+                                    while let Some(item) = s.next().await {
+                                        match item {
+                                            Ok(b) => {
+                                                let text = String::from_utf8_lossy(&b);
+                                                let cleaned = cleaner.clean_chunk(&text);
+                                                if !cleaned.is_empty() {
+                                                    yield Ok(Bytes::from(cleaned));
+                                                }
+                                            }
+                                            Err(e) => yield Err(e),
+                                        }
+                                    }
+                                    if let Some(remaining) = cleaner.flush() {
+                                        if !remaining.is_empty() {
+                                            yield Ok(Bytes::from(remaining));
+                                        }
+                                    }
+                                })
+                            } else {
+                                Box::pin(combined_stream)
+                            };
+
                             // 客户端本就要 Stream，直接返回 SSE
                             return Response::builder()
                                 .status(StatusCode::OK)

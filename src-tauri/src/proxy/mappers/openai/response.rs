@@ -141,8 +141,18 @@ pub fn transform_openai_response(
                             .unwrap_or("image/png");
                         let data = img.get("data").and_then(|v| v.as_str()).unwrap_or("");
                         if !data.is_empty() {
-                            content_out
-                                .push_str(&format!("![image](data:{};base64,{})", mime_type, data));
+                            let prefix = if content_out.is_empty() || content_out.ends_with("\n\n")
+                            {
+                                ""
+                            } else if content_out.ends_with('\n') {
+                                "\n"
+                            } else {
+                                "\n\n"
+                            };
+                            content_out.push_str(&format!(
+                                "{}![image](data:{};base64,{})\n\n",
+                                prefix, mime_type, data
+                            ));
                         }
                     }
 

@@ -134,6 +134,8 @@ const COMMAND_MAPPING: Record<string, { url: string; method: 'GET' | 'POST' | 'D
   'should_check_updates': { url: '/api/system/updates/check-status', method: 'GET' },
   'check_for_updates': { url: '/api/system/updates/check', method: 'POST' },
   'update_last_check_time': { url: '/api/system/updates/touch', method: 'POST' },
+  'check_rebuild_available': { url: '/api/system/rebuild/status', method: 'GET' },
+  'trigger_local_rebuild': { url: '/api/system/rebuild/trigger', method: 'POST' },
 
   // OAuth
   'prepare_oauth_url': { url: '/api/auth/url', method: 'GET' },

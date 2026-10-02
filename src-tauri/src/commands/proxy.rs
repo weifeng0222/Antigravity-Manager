@@ -5,7 +5,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::State;
 use tokio::sync::RwLock;
-use tokio::time::Duration;
 
 /// 反代服务状态
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -305,6 +304,8 @@ pub async fn ensure_admin_server(
 
     // [NEW] 初始化全局 Thinking Budget 配置
     crate::proxy::update_thinking_budget_config(config.thinking_budget.clone());
+    // [NEW] 初始化全局 Cursor 纯净流与点号清洗配置
+    crate::proxy::update_cursor_cleaner(config.cursor_cleaner);
     // [NEW] 初始化全局系统提示词配置
     crate::proxy::update_global_system_prompt_config(config.global_system_prompt.clone());
     // [NEW] 初始化全局图像思维模式配置
