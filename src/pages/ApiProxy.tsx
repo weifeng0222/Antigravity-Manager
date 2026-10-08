@@ -734,6 +734,23 @@ export default function ApiProxy() {
         saveConfig(newConfig);
     };
 
+    const handleToggleCursorCleaner = async (enabled: boolean) => {
+        if (!appConfig) return;
+        const newConfig = {
+            ...appConfig,
+            proxy: {
+                ...appConfig.proxy,
+                cursor_cleaner: enabled
+            }
+        };
+        await saveConfig(newConfig);
+        if (enabled) {
+            showToast(t('proxy.config.experimental.cursor_cleaner_started', { defaultValue: 'Cursor 纯净流已启动' }), 'success');
+        } else {
+            showToast(t('proxy.config.experimental.cursor_cleaner_stopped', { defaultValue: 'Cursor 纯净流已停止' }), 'success');
+        }
+    };
+
     const updateCircuitBreakerConfig = (newBreakerConfig: CircuitBreakerConfig) => {
         if (!appConfig) return;
         const newConfig = {
@@ -2057,6 +2074,8 @@ print(response.choices[0].message.content)`;
                                     <AgentSettings
                                         experimentalConfig={appConfig.proxy.experimental}
                                         onChange={updateExperimentalConfig}
+                                        cursorCleaner={appConfig.proxy.cursor_cleaner ?? false}
+                                        onCursorCleanerChange={handleToggleCursorCleaner}
                                         onSave={handleSaveProxySettings}
                                     />
                                 </CollapsibleCard>

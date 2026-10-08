@@ -9,12 +9,16 @@ import ModalDialog from "../common/ModalDialog";
 interface AgentSettingsProps {
     experimentalConfig?: ExperimentalConfig;
     onChange: (updates: Partial<ExperimentalConfig>) => void;
+    cursorCleaner?: boolean;
+    onCursorCleanerChange?: (enabled: boolean) => void;
     onSave?: () => Promise<void> | void;
 }
 
 export const AgentSettings: React.FC<AgentSettingsProps> = ({
     experimentalConfig,
     onChange,
+    cursorCleaner,
+    onCursorCleanerChange,
     onSave,
 }) => {
     const { t } = useTranslation();
@@ -548,6 +552,48 @@ export const AgentSettings: React.FC<AgentSettingsProps> = ({
                             </div>
                         )}
                     </div>
+                </div>
+            </div>
+
+            {/* 板块 2: Cursor 系列 (Cursor IDE / Agent) */}
+            <div className="p-4 bg-gray-50/70 dark:bg-base-200/60 rounded-xl border border-gray-200/70 dark:border-base-300 space-y-4">
+                {/* 标题栏 */}
+                <div className="flex items-center justify-between pb-3 border-b border-gray-200/60 dark:border-base-300/60">
+                    <div className="flex items-center gap-2">
+                        <Sparkles size={16} className="text-purple-500" />
+                        <span className="text-sm font-bold text-gray-900 dark:text-white">
+                            {t("proxy.agent_settings.cursor.title", { defaultValue: "Cursor 系列 (Cursor IDE / Agent)" })}
+                        </span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300">
+                            {t("proxy.agent_settings.cursor.tag", { defaultValue: "纯净流与流式清洗" })}
+                        </span>
+                    </div>
+                </div>
+
+                {/* Cursor 纯净流与点号清洗开关 */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="space-y-0.5 max-w-xl">
+                        <div className="text-xs font-semibold text-gray-900 dark:text-white flex items-center gap-1.5">
+                            <ShieldCheck size={14} className="text-emerald-500" />
+                            {t("proxy.agent_settings.cursor.cleaner_title", {
+                                defaultValue: "Cursor 纯净流与点号清洗 (Cursor Pure Stream & Dot Cleaner)"
+                            })}
+                        </div>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-normal">
+                            {t("proxy.agent_settings.cursor.cleaner_desc", {
+                                defaultValue: "专为 Cursor 设计，实时拦截过滤 SSE 流中的连续点号瀑布、行动过渡句（自动折叠进思考抽屉）与空心跳。在网关层双向兼容 OpenAI Responses / Chat Completions 与 Anthropic Messages 协议，彻底消除 Composer 白屏与空思考块异常。"
+                            })}
+                        </p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer select-none shrink-0">
+                        <input
+                            type="checkbox"
+                            checked={cursorCleaner ?? false}
+                            onChange={(e) => onCursorCleanerChange?.(e.target.checked)}
+                            className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-hidden rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-purple-600"></div>
+                    </label>
                 </div>
             </div>
 

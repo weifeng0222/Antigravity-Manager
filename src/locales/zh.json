@@ -699,7 +699,17 @@
       "update_dialog_title": "发现新版本可用",
       "update_confirm_desc": "检测到有新版本发布。是否立即下载更新？客户端将在下载完成后自动热重启以应用更新。",
       "current_version": "当前版本",
-      "latest_version_label": "最新版本"
+      "latest_version_label": "最新版本",
+      "rebuild_btn": "源码更新与重构 (保留补丁)",
+      "rebuild_btn_short": "源码构建更新",
+      "rebuilding": "正在启动终端...",
+      "rebuild_triggered_success": "已在独立终端启动源码更新与构建 (update_and_rebuild.sh)",
+      "rebuild_failed": "启动构建失败",
+      "local_rebuild_tooltip": "拉取最新代码并保留/应用补丁重新编译安装",
+      "local_rebuild_card_title": "推荐：源码更新与构建 (update_and_rebuild.sh)",
+      "patch_safe": "保留本地与Cursor补丁",
+      "local_rebuild_card_desc": "如果您自定义了功能补丁或使用了 Cursor 纯净流与流式清洗治理，建议使用源码构建更新。脚本将在独立终端中拉取上游最新版本、自动合并优化补丁并重新编译安装，避免官方安装包覆盖补丁。",
+      "run_rebuild_now": "在终端中执行更新与重构"
     },
     "advanced_thinking": {
       "title": "高级思维与全局配置",
@@ -947,6 +957,10 @@
       "experimental": {
         "title": "实验性设置 (Experimental)",
         "title_tooltip": "探索性功能，可能在未来版本中调整或移除。",
+        "cursor_cleaner_label": "Cursor 纯净流与点号清洗",
+        "cursor_cleaner_desc": "专为 Cursor 设计，实时拦截过滤 SSE 流中的连续点号瀑布、行动过渡句（自动折叠进思考抽屉）与空心跳",
+        "cursor_cleaner_started": "Cursor 纯净流已启动",
+        "cursor_cleaner_stopped": "Cursor 纯净流已停止",
         "enable_usage_scaling": "启用用量缩放",
         "enable_usage_scaling_tooltip": "支持所有兼容协议 (Claude/OpenAI/Gemini)。当总输入超过 30k Token 时开启激进缩放与分阶段上下文去噪提纯，防止在大上下文下频繁触发客户端压缩。注意：开启后客户端显示的用量不再代表实际计费点数。",
         "compression_level_label": "智能上下文压缩等级",
@@ -1063,6 +1077,8 @@
         "claude_default_hint": "已启用官方默认模式：完全按官方协议规范透传，不注入额外自定义预算限制。",
         "store_enabled": "服务端思考块与签名回填",
         "store_enabled_desc": "自动截获并持久化思考过程与加密签名；当商业 Agent（如 Cline, Roo, Claude Code 等）多轮对话未带回思考时由服务端自动补齐，杜绝上游 400 报错或上下文丢失。",
+        "store_enabled_started": "服务端思考块与签名回填已启动",
+        "store_enabled_stopped": "服务端思考块与签名回填已停止",
         "default_on_tag": "默认开启",
         "claude_thinking_note": "💡 Claude 模型说明：Anthropic 官方模型列表仅区分带 `-thinking`（如 claude-3-7-sonnet-thinking）与普通模型。本自定义预算专门控制带 thinking 模型的思考配额；若调用普通非 thinking 模型，上游不产生思考过程。",
         "max_memory_turns_label": "每轮对话的内存 Thinking 存储最大轮次",
@@ -1126,7 +1142,24 @@
         "title": "多模态交互设置 (Multimodal Settings)"
       },
       "agent_settings": {
-        "title": "特定 Agent 配置 (Specific Agent Settings)"
+        "title": "特定 Agent 配置 (Specific Agent Settings)",
+        "banner_title": "特定 Agent 专属特性与优化治理",
+        "banner_desc": "针对主流智能体（Claude Desktop、Claude Code、Cursor、Cline 等）的客户端特异性机制与沙箱限制，提供非侵入式的网关级调度协同。默认保持纯净线缆，仅在启用后对指定 Agent 流量精准介入。",
+        "claude_desktop": {
+          "title": "Claude Desktop 系列",
+          "tag": "Cowork 模式专属",
+          "auto_compact_title": "Cowork 模式自动响应式压缩自愈 (Auto Reactive Compact)",
+          "auto_compact_desc": "针对 Cowork 模式无法敲击 /compact 且沙箱旁路本地配置、高频全屏截屏导致上下文迅速膨胀至 200k+（单次 JSON 达 20~36MB）引发几十秒卡顿的顽疾。开启后，网关在后台实行双重确权校验（严格识别 Cowork 会话并对压缩总结请求无条件豁免放行），就地触发客户端内置 Summarizer 自动打上 compact_boundary 折叠历史与截图，恢复秒级极速响应。默认关闭以完整享受 Gemini 100万 Token 超长上下文。",
+          "threshold_label": "压缩触发门限 (Tokens)",
+          "threshold_desc": "当 Cowork 会话预估 Token 水位达到此数值时触发自愈信号。全屏截图按官方规格精准折算（~1600 tokens/张）。",
+          "safety_note": "后台双重安全校验：① 仅对 tools 显式包含 mcp__cowork 的桌面会话生效，普通 CLI / Cursor 绝对零误伤；② 对携带 x-stainless-helper: compaction 或 Prompt 包含官方压缩签名的总结请求无条件放行，绝对杜绝卡死会话。"
+        },
+        "cursor": {
+          "title": "Cursor 系列 (Cursor IDE / Agent)",
+          "tag": "纯净流与流式清洗",
+          "cleaner_title": "Cursor 纯净流与点号清洗 (Cursor Pure Stream & Dot Cleaner)",
+          "cleaner_desc": "专为 Cursor 设计，实时拦截过滤 SSE 流中的连续点号瀑布、行动过渡句（自动折叠进思考抽屉）与空心跳。在网关层双向兼容 OpenAI Responses / Chat Completions 与 Anthropic Messages 协议，彻底消除 Composer 白屏与空思考块异常。"
+        }
       }
     },
     "cloudflared": {
@@ -1607,7 +1640,10 @@
     },
     "restart_prompt": "更新已准备就绪，重启应用后即可完成升级。",
     "btn_restart": "立即重启",
-    "btn_later": "稍后"
+    "btn_later": "稍后",
+    "btn_rebuild": "源码重构更新 (保留补丁)",
+    "rebuilding": "正在启动终端...",
+    "rebuild_launched": "已在独立终端启动源码更新与构建 (update_and_rebuild.sh)"
   },
   "login": {
     "title": "安全访问控制",

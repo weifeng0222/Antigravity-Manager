@@ -660,7 +660,17 @@
       "update_dialog_title": "發現新版本可用",
       "update_confirm_desc": "檢測到有新版本發布。是否立即下載更新？用戶端將在下載完成後自動熱重新啟動以套用更新。",
       "current_version": "目前版本",
-      "latest_version_label": "最新版本"
+      "latest_version_label": "最新版本",
+      "rebuild_btn": "原始碼更新與重構 (保留補丁)",
+      "rebuild_btn_short": "原始碼建構更新",
+      "rebuilding": "正在啟動終端機...",
+      "rebuild_triggered_success": "已在獨立終端機啟動原始碼更新與建構 (update_and_rebuild.sh)",
+      "rebuild_failed": "啟動建構失敗",
+      "local_rebuild_tooltip": "拉取最新代碼並保留/套用補丁重新編譯安裝",
+      "local_rebuild_card_title": "推薦：原始碼更新與建構 (update_and_rebuild.sh)",
+      "patch_safe": "保留本地與Cursor補丁",
+      "local_rebuild_card_desc": "如果您自定義了功能補丁或使用了 Cursor 純淨流與流式清洗治理，建議使用原始碼建構更新。指令碼將在獨立終端機中拉取上游最新版本、自動合併優化補丁並重新編譯安裝，避免官方安裝包覆蓋補丁。",
+      "run_rebuild_now": "在終端機中執行更新與重構"
     },
     "debug": {
       "debug_logging": "除錯日誌",
@@ -919,6 +929,10 @@
       "experimental": {
         "title": "實驗性設定 (Experimental)",
         "title_tooltip": "探索性功能，可能在未來版本中調整或移除。",
+        "cursor_cleaner_label": "Cursor 純淨流與點號清洗",
+        "cursor_cleaner_desc": "專為 Cursor 設計，即時攔截過濾 SSE 流中的連續點號瀑布、行動過渡句（自動折疊進思考抽屜）與空心跳",
+        "cursor_cleaner_started": "Cursor 純淨流已啟動",
+        "cursor_cleaner_stopped": "Cursor 純淨流已停止",
         "enable_usage_scaling": "啟用用量縮放",
         "enable_usage_scaling_tooltip": "支援所有相容協定 (Claude/OpenAI/Gemini)。當總輸入超過 30k Token 時開啟激進縮放與分階段上下文去噪提純，防止在大上下文下頻繁觸發用戶端壓縮。注意：開啟後用戶端顯示的用量不再代表實際計費點數。",
         "compression_level_label": "智能上下文壓縮等級",
@@ -1028,6 +1042,8 @@
         "claude_default_hint": "已啟用官方預設模式：完全按官方協議規範透傳，不注入額外自訂預算限制。",
         "store_enabled": "伺服端思考塊與簽名回填",
         "store_enabled_desc": "自動攔截並持久化思考過程與加密簽名；當商業 Agent（如 Cline, Roo, Claude Code 等）多輪對話未帶回思考時由伺服端自動補齊，杜絕上游 400 報錯或上下文遺失。",
+        "store_enabled_started": "伺服端思考塊與簽名回填已啟動",
+        "store_enabled_stopped": "伺服端思考塊與簽名回填已停止",
         "default_on_tag": "預設開啟",
         "claude_thinking_note": "💡 Claude 模型說明：Anthropic 官方模型列表僅區分帶 `-thinking`（如 claude-3-7-sonnet-thinking）與普通模型。本自訂預算專門控制帶 thinking 模型的思考配額；若調用普通非 thinking 模型，上游不產生思考過程。",
         "max_memory_turns_label": "每輪對話的記憶體 Thinking 儲存最大輪次",
@@ -1086,6 +1102,26 @@
       },
       "prompt_multimodal": {
         "title": "全域提示詞與多模態設定 (Prompt & Multimodal)"
+      },
+      "agent_settings": {
+        "title": "特定 Agent 配置 (Specific Agent Settings)",
+        "banner_title": "特定 Agent 專屬特性與優化治理",
+        "banner_desc": "針對主流智能體（Claude Desktop、Claude Code、Cursor、Cline 等）的客戶端特異性機制與沙盒限制，提供非侵入式的網關級排程協同。預設保持純淨線纜，僅在啟用後對指定 Agent 流量精準介入。",
+        "claude_desktop": {
+          "title": "Claude Desktop 系列",
+          "tag": "Cowork 模式專屬",
+          "auto_compact_title": "Cowork 模式自動響應式壓縮自癒 (Auto Reactive Compact)",
+          "auto_compact_desc": "針對 Cowork 模式無法敲擊 /compact 且沙盒旁路本地設定、高頻全螢幕截圖導致上下文迅速膨脹至 200k+（單次 JSON 達 20~36MB）引發數十秒卡頓的頑疾。開啟後，網關在後台實行雙重確權校驗（嚴格識別 Cowork 會話並對壓縮總結請求無條件豁免放行），就地觸發客戶端內建 Summarizer 自動打上 compact_boundary 摺疊歷史與截圖，恢復秒級極速響應。預設關閉以完整享受 Gemini 100萬 Token 超長上下文。",
+          "threshold_label": "壓縮觸發門限 (Tokens)",
+          "threshold_desc": "當 Cowork 會話預估 Token 水位達到此數值時觸發自癒訊號。全螢幕截圖按官方規格精準折算（~1600 tokens/張）。",
+          "safety_note": "後台雙重安全校驗：① 僅對 tools 顯式包含 mcp__cowork 的桌面會話生效，普通 CLI / Cursor 絕對零誤傷；② 對攜帶 x-stainless-helper: compaction 或 Prompt 包含官方壓縮簽名的總結請求無條件放行，絕對杜絕卡死會話。"
+        },
+        "cursor": {
+          "title": "Cursor 系列 (Cursor IDE / Agent)",
+          "tag": "純淨流與流式清洗",
+          "cleaner_title": "Cursor 純淨流與點號清洗 (Cursor Pure Stream & Dot Cleaner)",
+          "cleaner_desc": "專為 Cursor 設計，即時攔截過濾 SSE 流中的連續點號瀑布、行動過渡句（自動摺疊進思考抽屜）與空心跳。在網關層雙向相容 OpenAI Responses / Chat Completions 與 Anthropic Messages 協議，徹底消除 Composer 白屏與空思考區塊異常。"
+        }
       },
       "log_retention_title": "請求日誌保留",
       "log_retention_body_hours": "請求主體保留小時數",
@@ -1628,7 +1664,10 @@
     },
     "restart_prompt": "更新已準備就緒，重新啟動應用程式後即可完成升級。",
     "btn_restart": "立即重新啟動",
-    "btn_later": "稍後"
+    "btn_later": "稍後",
+    "btn_rebuild": "原始碼重構更新 (保留補丁)",
+    "rebuilding": "正在啟動終端機...",
+    "rebuild_launched": "已在獨立終端機啟動原始碼更新與建構 (update_and_rebuild.sh)"
   },
   "login": {
     "title": "安全存取控制",

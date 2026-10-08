@@ -701,7 +701,17 @@
       "update_dialog_title": "New Version Available",
       "update_confirm_desc": "A new version is available. Would you like to download and update now? The app will automatically restart once downloaded.",
       "current_version": "Current Version",
-      "latest_version_label": "Latest Version"
+      "latest_version_label": "Latest Version",
+      "rebuild_btn": "Rebuild from Source (Keep Patches)",
+      "rebuild_btn_short": "Source Rebuild Update",
+      "rebuilding": "Launching Terminal...",
+      "rebuild_triggered_success": "Update and rebuild script launched in independent terminal (update_and_rebuild.sh)",
+      "rebuild_failed": "Failed to launch build",
+      "local_rebuild_tooltip": "Pull latest upstream code, retain/apply patches, and recompile",
+      "local_rebuild_card_title": "Recommended: Rebuild from Source (update_and_rebuild.sh)",
+      "patch_safe": "Preserves Local & Cursor Patches",
+      "local_rebuild_card_desc": "If you are using customized patches or Cursor Pure Stream & Stream Sanitization, updating via source rebuild is recommended. The script pulls the latest version in an isolated terminal, merges optimized patches, and recompiles, preventing prebuilt binaries from overwriting your patches.",
+      "run_rebuild_now": "Execute Rebuild in Terminal"
     },
     "advanced_thinking": {
       "title": "Advanced Thinking & Global Config",
@@ -956,6 +966,10 @@
       "experimental": {
         "title": "Experimental Settings",
         "title_tooltip": "Exploratory features that may be adjusted or removed in future versions.",
+        "cursor_cleaner_label": "Cursor Clean Stream & Dot Filter",
+        "cursor_cleaner_desc": "Specifically designed for Cursor, intercepts and filters out dot cascades, action planning narration (folded into thinking), and empty heartbeats in SSE streams.",
+        "cursor_cleaner_started": "Cursor cleaner enabled",
+        "cursor_cleaner_stopped": "Cursor cleaner disabled",
         "enable_usage_scaling": "Enable Usage Scaling",
         "enable_usage_scaling_tooltip": "For all compatible protocols (Claude/OpenAI/Gemini). Enables aggressive scaling and multi-phase context compression when total input exceeds 30k tokens. Note: Reported usage will not reflect actual billing after enabling.",
         "compression_level_label": "Context Compression Level",
@@ -1072,6 +1086,8 @@
         "claude_default_hint": "Official default mode enabled: adheres to standard Anthropic specifications without custom limits.",
         "store_enabled": "Server-side Thought & Signature Restoration",
         "store_enabled_desc": "Automatically captures and persists reasoning blocks and encrypted signatures. When client agents (e.g. Cline, Roo, Claude Code) omit thought content in multi-turn chats, the gateway restores them to prevent upstream 400 errors or context loss.",
+        "store_enabled_started": "Server-side Thought & Signature Restoration started",
+        "store_enabled_stopped": "Server-side Thought & Signature Restoration stopped",
         "default_on_tag": "Default On",
         "claude_thinking_note": "💡 Claude Model Note: Anthropic official models only differentiate between `-thinking` (e.g. claude-3-7-sonnet-thinking) and standard models. This custom budget specifically manages quotas for thinking models; calling standard models will not trigger upstream reasoning.",
         "max_memory_turns_label": "Max Memory Thinking Turns per Session",
@@ -1135,7 +1151,24 @@
         "title": "Multimodal Settings"
       },
       "agent_settings": {
-        "title": "Specific Agent Settings"
+        "title": "Specific Agent Settings",
+        "banner_title": "Specific Agent Dedicated Features & Optimization",
+        "banner_desc": "Provides non-intrusive gateway-level scheduling tailored to client quirks and sandbox limitations for major agents (Claude Desktop, Claude Code, Cursor, Cline, etc.). Kept pure by default, intervening only on targeted agent traffic when enabled.",
+        "claude_desktop": {
+          "title": "Claude Desktop Series",
+          "tag": "Cowork Mode Only",
+          "auto_compact_title": "Cowork Auto Reactive Compact",
+          "auto_compact_desc": "Addresses persistent stalls where Cowork cannot run /compact, bypasses local config, and balloons context to 200k+ with frequent full screenshots. When enabled, dual backend verification triggers the client's internal Summarizer with compact_boundary, folding screenshots and history to restore sub-second responses. Off by default for full 1M Gemini context.",
+          "threshold_label": "Compact Trigger Threshold (Tokens)",
+          "threshold_desc": "Triggers self-healing when estimated Cowork session token level reaches this threshold. Full screenshots converted accurately (~1600 tokens/image).",
+          "safety_note": "Dual Backend Safety: ① Only activates for sessions explicitly presenting mcp__cowork tools, zero false positives for standard CLI/Cursor; ② Compaction summary requests bearing x-stainless-helper: compaction or official signatures pass through unconditionally."
+        },
+        "cursor": {
+          "title": "Cursor Series (Cursor IDE / Agent)",
+          "tag": "Pure Stream & Sanitization",
+          "cleaner_title": "Cursor Pure Stream & Dot Cleaner",
+          "cleaner_desc": "Tailored for Cursor to intercept continuous dot cascades, action transitions (collapsed into thinking drawers), and empty heartbeats across SSE streams in real time. Bidirectionally normalizes OpenAI Responses/Chat and Anthropic Messages at the gateway to eliminate Composer blank screens and empty block errors."
+        }
       }
     },
     "cloudflared": {
@@ -1638,6 +1671,9 @@
     "restart_prompt": "Update is ready. Restart the app to apply changes.",
     "btn_restart": "Restart Now",
     "btn_later": "Later",
+    "btn_rebuild": "Source Rebuild (Keep Patches)",
+    "rebuilding": "Launching Terminal...",
+    "rebuild_launched": "Update and rebuild script launched in independent terminal (update_and_rebuild.sh)",
     "toast": {
       "not_ready": "Update artifacts are not ready yet. Will retry later.",
       "failed": "Auto-update failed"

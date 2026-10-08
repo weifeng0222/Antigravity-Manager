@@ -432,6 +432,11 @@ impl AxumServer {
         tracing::debug!("only_raw_quota_models 已更新: {}", only_raw);
     }
 
+    pub async fn update_cursor_cleaner(&self, enabled: bool) {
+        crate::proxy::update_cursor_cleaner(enabled);
+        tracing::debug!("cursor_cleaner 已更新: {}", enabled);
+    }
+
     pub async fn update_mapping(&self, config: &crate::proxy::config::ProxyConfig) {
         {
             let mut m = self.custom_mapping.write().await;
@@ -963,6 +968,8 @@ impl AxumServer {
             .route("/system/updates/check", post(admin_check_for_updates))
             .route("/system/updates/touch", post(admin_update_last_check_time))
             .route("/system/updates/save", post(admin_save_update_settings))
+            .route("/system/rebuild/status", get(admin_check_rebuild_available))
+            .route("/system/rebuild/trigger", post(admin_trigger_local_rebuild))
             .route(
                 "/system/autostart/status",
                 get(admin_is_auto_launch_enabled),
@@ -2490,6 +2497,33 @@ async fn admin_should_check_updates() -> Result<impl IntoResponse, (StatusCode, 
     })?;
     let should = crate::modules::update_checker::should_check_for_updates(&settings);
     Ok(Json(should))
+}
+
+async fn admin_check_rebuild_available(
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    Ok(Json(
+        crate::modules::update_checker::is_rebuild_script_available(),
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+struct RebuildPayload {
+    channel: Option<String>,
+}
+
+async fn admin_trigger_local_rebuild(
+    body: Option<Json<RebuildPayload>>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    let channel = body.and_then(|b| b.channel.clone());
+    let res = crate::modules::update_checker::trigger_local_rebuild(channel)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
+    Ok(Json(json!({ "status": res })))
 }
 
 async fn admin_get_antigravity_path() -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)>

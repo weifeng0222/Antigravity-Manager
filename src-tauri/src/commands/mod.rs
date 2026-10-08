@@ -442,6 +442,7 @@ pub async fn save_config(
     crate::proxy::update_global_system_prompt_config(config.proxy.global_system_prompt.clone());
     crate::proxy::update_image_thinking_mode(config.proxy.image_thinking_mode.clone());
     crate::proxy::update_multimodal_config(config.proxy.multimodal.clone());
+    crate::proxy::update_cursor_cleaner(config.proxy.cursor_cleaner);
     crate::proxy::config::update_global_audit_config(
         config.proxy.experimental.payload_storage_mode.clone(),
         config.proxy.experimental.log_retention_days,
@@ -465,6 +466,11 @@ pub async fn save_config(
         instance
             .axum_server
             .update_only_raw_quota_models(config.proxy.only_raw_quota_models)
+            .await;
+        // 更新 Cursor 纯净流与点号清洗开关
+        instance
+            .axum_server
+            .update_cursor_cleaner(config.proxy.cursor_cleaner)
             .await;
         // 更新上游代理
         instance
@@ -1238,6 +1244,19 @@ pub async fn check_appimage_installation() -> Result<bool, String> {
 pub async fn brew_upgrade_cask() -> Result<String, String> {
     modules::logger::log_info("收到前端触发的 Homebrew 升级请求");
     crate::modules::update_checker::brew_upgrade_cask().await
+}
+
+/// 检测本地是否存在 update_and_rebuild.sh 源码重构脚本
+#[tauri::command]
+pub async fn check_rebuild_available() -> Result<bool, String> {
+    Ok(crate::modules::update_checker::is_rebuild_script_available())
+}
+
+/// 触发本地源码拉取与一键重构 (update_and_rebuild.sh)
+#[tauri::command]
+pub async fn trigger_local_rebuild(channel: Option<String>) -> Result<String, String> {
+    modules::logger::log_info("收到前端触发的本地源码一键更新与重构请求");
+    crate::modules::update_checker::trigger_local_rebuild(channel).await
 }
 
 /// 获取更新设置
