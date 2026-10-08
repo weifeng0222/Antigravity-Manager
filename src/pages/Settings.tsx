@@ -43,7 +43,7 @@ function Settings() {
     const { enable, disable, isEnabled } = useDebugConsole();
     const [isSaving, setIsSaving] = useState(false);
     const [activeTab, setActiveTab] = useState<'general' | 'account' | 'proxy' | 'advanced' | 'debug' | 'about'>('general');
-    const [appVersion, setAppVersion] = useState<string>('4.9.0');
+    const [appVersion, setAppVersion] = useState<string>('4.9.6');
     const [formData, setFormData] = useState<AppConfig>({
         language: 'zh',
         theme: 'system',

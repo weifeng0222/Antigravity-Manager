@@ -105,7 +105,7 @@ where
             crate::proxy::thinking_store::TurnAccumulator::new()
         };
 
-        let mut heartbeat_interval = tokio::time::interval(std::time::Duration::from_secs(15));
+        let mut heartbeat_interval = tokio::time::interval(std::time::Duration::from_secs(3));
         heartbeat_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         loop {
@@ -116,7 +116,8 @@ where
                             buffer.extend_from_slice(&bytes);
                             while let Some(pos) = buffer.iter().position(|&b| b == b'\n') {
                                 let line_raw = buffer.split_to(pos + 1);
-                                if let Ok(line_str) = std::str::from_utf8(&line_raw) {
+                                let line_str = String::from_utf8_lossy(&line_raw);
+                                {
                                     let line = line_str.trim();
                                     if line.is_empty() { continue; }
                                     if line.starts_with("data: ") {
@@ -475,9 +476,9 @@ where
                             buffer.extend_from_slice(&bytes);
                             while let Some(pos) = buffer.iter().position(|&b| b == b'\n') {
                                 let line_raw = buffer.split_to(pos + 1);
-                                if let Ok(line_str) = std::str::from_utf8(&line_raw) {
-                                    let line = line_str.trim();
-                                    if line.is_empty() { continue; }
+                                let line_str = String::from_utf8_lossy(&line_raw);
+                                let line = line_str.trim();
+                                if line.is_empty() { continue; }
                                     if line.starts_with("data: ") {
                                         let json_part = line.trim_start_matches("data: ").trim();
                                         if json_part == "[DONE]" { continue; }
@@ -536,7 +537,6 @@ where
                                     }
                                 }
                             }
-                        }
                         Some(Err(e)) => {
                             let report = report_stream_error(
                                 "openai-legacy",
@@ -741,11 +741,11 @@ where
                             buffer.extend_from_slice(&bytes);
                             while let Some(pos) = buffer.iter().position(|&b| b == b'\n') {
                                 let line_raw = buffer.split_to(pos + 1);
-                                if let Ok(line_str) = std::str::from_utf8(&line_raw) {
-                                    let line = line_str.trim();
-                                    if line.is_empty() || !line.starts_with("data: ") { continue; }
-                                    let json_part = line.trim_start_matches("data: ").trim();
-                                    if json_part == "[DONE]" { continue; }
+                                let line_str = String::from_utf8_lossy(&line_raw);
+                                let line = line_str.trim();
+                                if line.is_empty() || !line.starts_with("data: ") { continue; }
+                                let json_part = line.trim_start_matches("data: ").trim();
+                                if json_part == "[DONE]" { continue; }
 
                                     if let Ok(mut json) = serde_json::from_str::<Value>(json_part) {
                                         let actual_data = if let Some(inner) = json.get_mut("response").map(|v| v.take()) { inner } else { json };
@@ -1153,7 +1153,6 @@ where
                                                     buffer.len()
                                                 ),
                                             );
-                                        }
                                     }
                                 }
                             }

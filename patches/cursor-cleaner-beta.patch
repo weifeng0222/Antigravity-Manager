@@ -34,18 +34,9 @@ index 00000000..5ed0b5af
 +allowBuilds:
 +  esbuild: true
 diff --git a/src-tauri/Cargo.lock b/src-tauri/Cargo.lock
-index bae7eceb..b04a2a2d 100644
+index 3742c3c2..43f28b5d 100644
 --- a/src-tauri/Cargo.lock
 +++ b/src-tauri/Cargo.lock
-@@ -96,7 +96,7 @@ checksum = "34fde25430d87a9388dadbe6e34d7f72a462c8b43ac8d309b42b0a8505d7e2a5"
- 
- [[package]]
- name = "antigravity-tools"
--version = "4.8.9"
-+version = "4.9.0"
- dependencies = [
-  "aes-gcm",
-  "anyhow",
 @@ -786,6 +786,12 @@ dependencies = [
   "cc",
  ]
@@ -127,17 +118,9 @@ index bae7eceb..b04a2a2d 100644
  name = "zvariant"
  version = "5.9.2"
 diff --git a/src-tauri/Cargo.toml b/src-tauri/Cargo.toml
-index 44d7e833..6d1e9575 100644
+index a522e32b..904b9f3d 100644
 --- a/src-tauri/Cargo.toml
 +++ b/src-tauri/Cargo.toml
-@@ -1,6 +1,6 @@
- [package]
- name = "antigravity-tools"
--version = "4.8.9"
-+version = "4.9.0"
- description = "Antigravity Tools"
- authors = ["you"]
- license = "CC-BY-NC-SA-4.0"
 @@ -39,7 +39,7 @@ tokio = { version = "1", features = ["full"] }
  url = "2.5.7"
  tauri-plugin-dialog = "2.6.0"
@@ -148,7 +131,7 @@ index 44d7e833..6d1e9575 100644
  
  # 反代服务依赖
 diff --git a/src-tauri/src/commands/mod.rs b/src-tauri/src/commands/mod.rs
-index 161821fd..7a8f33b6 100644
+index b24a2475..c107211b 100644
 --- a/src-tauri/src/commands/mod.rs
 +++ b/src-tauri/src/commands/mod.rs
 @@ -442,6 +442,7 @@ pub async fn save_config(
@@ -159,7 +142,7 @@ index 161821fd..7a8f33b6 100644
      crate::proxy::config::update_global_audit_config(
          config.proxy.experimental.payload_storage_mode.clone(),
          config.proxy.experimental.log_retention_days,
-@@ -466,6 +467,11 @@ pub async fn save_config(
+@@ -467,6 +468,11 @@ pub async fn save_config(
              .axum_server
              .update_only_raw_quota_models(config.proxy.only_raw_quota_models)
              .await;
@@ -171,7 +154,7 @@ index 161821fd..7a8f33b6 100644
          // 更新上游代理
          instance
              .axum_server
-@@ -1235,6 +1241,19 @@ pub async fn brew_upgrade_cask() -> Result<String, String> {
+@@ -1242,6 +1248,19 @@ pub async fn brew_upgrade_cask() -> Result<String, String> {
      crate::modules::update_checker::brew_upgrade_cask().await
  }
  
@@ -192,7 +175,7 @@ index 161821fd..7a8f33b6 100644
  #[tauri::command]
  pub async fn get_update_settings() -> Result<crate::modules::update_checker::UpdateSettings, String>
 diff --git a/src-tauri/src/commands/proxy.rs b/src-tauri/src/commands/proxy.rs
-index 92196386..817a92a6 100644
+index 913ff552..1852fcfe 100644
 --- a/src-tauri/src/commands/proxy.rs
 +++ b/src-tauri/src/commands/proxy.rs
 @@ -5,7 +5,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
@@ -203,7 +186,7 @@ index 92196386..817a92a6 100644
  
  /// 反代服务状态
  #[derive(Debug, Clone, Serialize, Deserialize)]
-@@ -305,6 +304,8 @@ pub async fn ensure_admin_server(
+@@ -306,6 +305,8 @@ pub async fn ensure_admin_server(
  
      // [NEW] 初始化全局 Thinking Budget 配置
      crate::proxy::update_thinking_budget_config(config.thinking_budget.clone());
@@ -213,10 +196,10 @@ index 92196386..817a92a6 100644
      crate::proxy::update_global_system_prompt_config(config.global_system_prompt.clone());
      // [NEW] 初始化全局图像思维模式配置
 diff --git a/src-tauri/src/lib.rs b/src-tauri/src/lib.rs
-index affc955d..42320120 100644
+index d4f3a988..8777801b 100644
 --- a/src-tauri/src/lib.rs
 +++ b/src-tauri/src/lib.rs
-@@ -701,6 +701,8 @@ pub fn run() {
+@@ -685,6 +685,8 @@ pub fn run() {
              commands::check_homebrew_installation,
              commands::check_appimage_installation,
              commands::brew_upgrade_cask,
@@ -921,7 +904,7 @@ index 8f6937a6..7043c5e1 100644
  pub mod model_mapping;
  pub mod schema_cache;
 diff --git a/src-tauri/src/proxy/config.rs b/src-tauri/src/proxy/config.rs
-index fddf0d85..78932fac 100644
+index c114a667..c7a06b2a 100644
 --- a/src-tauri/src/proxy/config.rs
 +++ b/src-tauri/src/proxy/config.rs
 @@ -146,6 +146,33 @@ pub fn update_image_thinking_mode(mode: Option<String>) {
@@ -958,7 +941,7 @@ index fddf0d85..78932fac 100644
  // ============================================================================
  // 全局多模态交互与保鲜滑窗配置存储
  // ============================================================================
-@@ -811,6 +838,10 @@ pub struct ProxyConfig {
+@@ -838,6 +865,10 @@ pub struct ProxyConfig {
      #[serde(default)]
      pub only_raw_quota_models: bool,
  
@@ -969,7 +952,7 @@ index fddf0d85..78932fac 100644
      /// 自定义 User-Agent 请求头 (可选覆盖)
      #[serde(default)]
      pub user_agent_override: Option<String>,
-@@ -997,6 +1028,7 @@ impl Default for ProxyConfig {
+@@ -1019,6 +1050,7 @@ impl Default for ProxyConfig {
              debug_logging: DebugLoggingConfig::default(),
              upstream_proxy: UpstreamProxyConfig::default(),
              only_raw_quota_models: false,
@@ -978,19 +961,10 @@ index fddf0d85..78932fac 100644
              experimental: ExperimentalConfig::default(),
              security_monitor: SecurityMonitorConfig::default(),
 diff --git a/src-tauri/src/proxy/handlers/claude.rs b/src-tauri/src/proxy/handlers/claude.rs
-index 88a3cbb9..aa27bec9 100644
+index 20aa1faf..cbe91513 100644
 --- a/src-tauri/src/proxy/handlers/claude.rs
 +++ b/src-tauri/src/proxy/handlers/claude.rs
-@@ -27,7 +27,7 @@ use crate::proxy::server::AppState;
- use crate::proxy::upstream::client::mask_email;
- use axum::http::HeaderMap;
- use dashmap::DashSet;
--use std::sync::{atomic::Ordering, Arc, LazyLock};
-+use std::sync::{Arc, LazyLock};
- 
- /// 记录刚完成压缩总结的会话集合，提供单次续写接续免死标志 (One-Shot Post-Compaction Immunity)
- /// 彻底攻克“静态扫描消息导致一次压缩后终身免死无法再次压缩”的死穴 (Fixes #3563)
-@@ -1373,6 +1373,37 @@ pub async fn handle_messages(
+@@ -2160,6 +2160,37 @@ pub async fn handle_messages(
  
                          // 判断客户端期望的格式
                          if client_wants_stream {
@@ -1029,7 +1003,7 @@ index 88a3cbb9..aa27bec9 100644
                              return Response::builder()
                                  .status(StatusCode::OK)
 diff --git a/src-tauri/src/proxy/handlers/openai.rs b/src-tauri/src/proxy/handlers/openai.rs
-index be242c48..7f345e0e 100644
+index 3371c0ce..409faf71 100644
 --- a/src-tauri/src/proxy/handlers/openai.rs
 +++ b/src-tauri/src/proxy/handlers/openai.rs
 @@ -30,6 +30,7 @@ use crate::modules::account;
@@ -1040,7 +1014,7 @@ index be242c48..7f345e0e 100644
  use std::collections::VecDeque;
  use std::io;
  use tokio::task::JoinSet;
-@@ -2592,6 +2593,33 @@ pub async fn handle_chat_completions(
+@@ -2615,6 +2616,33 @@ pub async fn handle_chat_completions(
                          });
                      }
                      // 客户端请求流式，返回 SSE
@@ -1074,7 +1048,7 @@ index be242c48..7f345e0e 100644
                      let body = Body::from_stream(combined_stream);
                      return Ok(Response::builder()
                          .header("Content-Type", "text/event-stream")
-@@ -4266,6 +4294,33 @@ pub async fn handle_completions(
+@@ -4339,6 +4367,33 @@ pub async fn handle_completions(
                              }
                          });
                      }
@@ -1108,7 +1082,7 @@ index be242c48..7f345e0e 100644
                      return Response::builder()
                          .header("Content-Type", "text/event-stream")
                          .header("Cache-Control", "no-cache")
-@@ -6014,7 +6069,7 @@ pub async fn handle_images_edits(
+@@ -6087,7 +6142,7 @@ pub async fn handle_images_edits(
  // ==========================================
  
  use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
@@ -1241,7 +1215,7 @@ index 00523d51..250104c5 100644
                  self.flush_text();
              }
 diff --git a/src-tauri/src/proxy/mappers/claude/streaming.rs b/src-tauri/src/proxy/mappers/claude/streaming.rs
-index dc57e67b..64529e55 100644
+index 92e49f32..41c7d99c 100644
 --- a/src-tauri/src/proxy/mappers/claude/streaming.rs
 +++ b/src-tauri/src/proxy/mappers/claude/streaming.rs
 @@ -445,6 +445,44 @@ impl StreamingState {
@@ -1427,9 +1401,9 @@ index dc57e67b..64529e55 100644
              self.state.store_signature(signature);
  
              chunks.extend(
-@@ -1544,4 +1535,111 @@ mod tests {
-         assert!(!output.contains("text_delta"));
-         assert!(state.used_tool);
+@@ -1566,4 +1557,111 @@ mod tests {
+             "Must not leak internal non-standard 'decode_error'"
+         );
      }
 +
 +    #[test]
@@ -1565,7 +1539,7 @@ index 43529f8e..9fc9388b 100644
                      }
  
 diff --git a/src-tauri/src/proxy/mappers/openai/streaming.rs b/src-tauri/src/proxy/mappers/openai/streaming.rs
-index 5c348e4e..5663072c 100644
+index 2f6dfd69..16f268aa 100644
 --- a/src-tauri/src/proxy/mappers/openai/streaming.rs
 +++ b/src-tauri/src/proxy/mappers/openai/streaming.rs
 @@ -96,6 +96,7 @@ where
@@ -1576,7 +1550,7 @@ index 5c348e4e..5663072c 100644
          let mut error_occurred = false;
          let mut tool_call_index = 0;
          let mut thinking_acc = if let Some(ref a) = causal_anchor {
-@@ -158,7 +159,14 @@ where
+@@ -159,7 +160,14 @@ where
                                                                  let mime_type = img.get("mimeType").and_then(|v| v.as_str()).unwrap_or("image/png");
                                                                  let data = img.get("data").and_then(|v| v.as_str()).unwrap_or("");
                                                                  if !data.is_empty() {
@@ -1592,7 +1566,7 @@ index 5c348e4e..5663072c 100644
                                                                  }
                                                              }
                                                              if let Some(func_call) = part.get("functionCall") {
-@@ -299,6 +307,7 @@ where
+@@ -300,6 +308,7 @@ where
                                                              }]
                                                          });
                                                          if finish_reason.is_some() {
@@ -1600,7 +1574,7 @@ index 5c348e4e..5663072c 100644
                                                              if !include_usage {
                                                                  if let Some(ref usage) = final_usage {
                                                                      openai_chunk["usage"] = serde_json::to_value(usage).unwrap();
-@@ -380,6 +389,33 @@ where
+@@ -381,6 +390,33 @@ where
  
          thinking_acc.commit(&session_id);
          if !error_occurred {
@@ -1885,7 +1859,7 @@ index 5c348e4e..5663072c 100644
                                                              }
                                                          }
                                                          if let Some(sig) = part.get("thoughtSignature").or(part.get("thought_signature")).and_then(|s| s.as_str()) {
-@@ -1119,18 +1240,46 @@ where
+@@ -1118,18 +1239,46 @@ where
              final_outputs_map.insert(reasoning_output_index, reasoning_item);
          }
  
@@ -1936,7 +1910,7 @@ index 5c348e4e..5663072c 100644
          }
  
          if message_item_emitted {
-@@ -1618,6 +1767,9 @@ mod tests {
+@@ -1617,6 +1766,9 @@ mod tests {
  
      #[tokio::test]
      async fn test_codex_final_message_is_promoted_and_persisted() {
@@ -1946,7 +1920,7 @@ index 5c348e4e..5663072c 100644
          let (_, events) = collect_codex_stream(vec![
              json!({"candidates": [{"content": {"parts": [{"text": "Checking ", "thought": true}]}}]}),
              json!({"candidates": [{"content": {"parts": [{"text": "results.", "thought": true}]}}]}),
-@@ -1708,6 +1860,9 @@ mod tests {
+@@ -1707,6 +1859,9 @@ mod tests {
  
      #[tokio::test]
      async fn test_codex_late_thought_does_not_mix_into_final_answer() {
@@ -1956,7 +1930,7 @@ index 5c348e4e..5663072c 100644
          let (raw, events) = collect_codex_stream(vec![
              json!({
                  "candidates": [{
-@@ -1745,6 +1900,9 @@ mod tests {
+@@ -1744,6 +1899,9 @@ mod tests {
  
      #[tokio::test]
      async fn test_codex_tool_round_message_stays_commentary() {
@@ -1966,7 +1940,7 @@ index 5c348e4e..5663072c 100644
          let (_, events) = collect_codex_stream(vec![
              json!({
                  "candidates": [{
-@@ -1804,6 +1962,279 @@ mod tests {
+@@ -1803,6 +1961,279 @@ mod tests {
          assert_eq!(terminal["response"]["error"]["code"], "empty_response");
      }
  
@@ -2246,7 +2220,7 @@ index 5c348e4e..5663072c 100644
      #[tokio::test]
      async fn test_openai_streaming_usage_only_at_end() {
          // Chunk 1: Partial content, no usage
-@@ -2173,4 +2604,140 @@ mod tests {
+@@ -2172,4 +2603,140 @@ mod tests {
          );
          assert_eq!(final_finish_reason, Some("stop".to_string()));
      }
@@ -2387,23 +2361,6 @@ index 5c348e4e..5663072c 100644
 +        assert_eq!(terminal_json["usage"]["total_tokens"], 30);
 +    }
  }
-diff --git a/src-tauri/src/proxy/middleware/monitor.rs b/src-tauri/src/proxy/middleware/monitor.rs
-index 20fb3ffd..9319df02 100644
---- a/src-tauri/src/proxy/middleware/monitor.rs
-+++ b/src-tauri/src/proxy/middleware/monitor.rs
-@@ -380,11 +380,7 @@ fn build_canonical_consolidated_response(
-             // 1. 优先按当前轮次的思考文本片段精准直捞专属签名
-             if !thinking_content.is_empty() {
-                 let trimmed = thinking_content.trim();
--                let snippet = if trimmed.len() > 32 {
--                    &trimmed[..32]
--                } else {
--                    trimmed
--                };
-+                let snippet = crate::proxy::mappers::common_utils::safe_truncate_str(trimmed, 32);
-                 if let Some(sig) =
-                     crate::modules::proxy_db::lookup_signature_by_thought_snippet(snippet)
-                 {
 diff --git a/src-tauri/src/proxy/mod.rs b/src-tauri/src/proxy/mod.rs
 index 0e1871c0..86b65619 100644
 --- a/src-tauri/src/proxy/mod.rs
@@ -2418,25 +2375,10 @@ index 0e1871c0..86b65619 100644
  pub use config::update_image_thinking_mode;
  pub use config::update_multimodal_config;
 diff --git a/src-tauri/src/proxy/server.rs b/src-tauri/src/proxy/server.rs
-index e8677050..9fe79789 100644
+index 350b2f93..3f838a2c 100644
 --- a/src-tauri/src/proxy/server.rs
 +++ b/src-tauri/src/proxy/server.rs
-@@ -5,13 +5,12 @@ use axum::{
-     extract::{DefaultBodyLimit, Path, Query, State},
-     http::{HeaderMap, StatusCode},
-     response::{Html, IntoResponse, Json, Response},
--    routing::{any, delete, get, post},
-+    routing::{delete, get, post},
-     Router,
- };
- use serde::{Deserialize, Serialize};
- use serde_json::json;
- use std::collections::{HashMap, HashSet};
--use std::sync::atomic::AtomicUsize;
- use std::sync::{Arc, Mutex, OnceLock};
- use tokio::sync::{watch, RwLock};
- use tracing::{debug, error};
-@@ -433,6 +432,11 @@ impl AxumServer {
+@@ -432,6 +432,11 @@ impl AxumServer {
          tracing::debug!("only_raw_quota_models 已更新: {}", only_raw);
      }
  
@@ -2448,7 +2390,7 @@ index e8677050..9fe79789 100644
      pub async fn update_mapping(&self, config: &crate::proxy::config::ProxyConfig) {
          {
              let mut m = self.custom_mapping.write().await;
-@@ -960,6 +964,8 @@ impl AxumServer {
+@@ -963,6 +968,8 @@ impl AxumServer {
              .route("/system/updates/check", post(admin_check_for_updates))
              .route("/system/updates/touch", post(admin_update_last_check_time))
              .route("/system/updates/save", post(admin_save_update_settings))
@@ -2457,7 +2399,7 @@ index e8677050..9fe79789 100644
              .route(
                  "/system/autostart/status",
                  get(admin_is_auto_launch_enabled),
-@@ -2489,6 +2495,33 @@ async fn admin_should_check_updates() -> Result<impl IntoResponse, (StatusCode,
+@@ -2493,6 +2500,33 @@ async fn admin_should_check_updates() -> Result<impl IntoResponse, (StatusCode,
      Ok(Json(should))
  }
  
@@ -2492,18 +2434,9 @@ index e8677050..9fe79789 100644
  {
      let path = crate::commands::get_antigravity_path(Some(true))
 diff --git a/src-tauri/tauri.conf.json b/src-tauri/tauri.conf.json
-index a35f4228..f694f270 100644
+index 7cc00671..5117acc8 100644
 --- a/src-tauri/tauri.conf.json
 +++ b/src-tauri/tauri.conf.json
-@@ -1,7 +1,7 @@
- {
-   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-   "productName": "Antigravity Tools",
--  "version": "4.8.9",
-+  "version": "4.9.0",
-   "identifier": "com.lbjlaq.antigravity-tools",
-   "build": {
-     "beforeDevCommand": "npm run dev",
 @@ -57,8 +57,8 @@
      "updater": {
        "active": true,
@@ -3112,17 +3045,10 @@ index f5b1ccf1..1b81f6ce 100644
      );
  }
 diff --git a/src/components/settings/AgentSettings.tsx b/src/components/settings/AgentSettings.tsx
-index b4a70476..31365dbd 100644
+index e9da2c7b..fefcd027 100644
 --- a/src/components/settings/AgentSettings.tsx
 +++ b/src/components/settings/AgentSettings.tsx
-@@ -1,18 +1,22 @@
- import React, { useState } from "react";
- import { useTranslation } from "react-i18next";
--import { Save, Check, Bot, Laptop, ShieldCheck, Zap } from "lucide-react";
-+import { Save, Check, Bot, Laptop, ShieldCheck, Zap, Sparkles } from "lucide-react";
- import { ExperimentalConfig } from "../../types/config";
- import { showToast } from "../common/ToastContainer";
- 
+@@ -9,12 +9,16 @@ import ModalDialog from "../common/ModalDialog";
  interface AgentSettingsProps {
      experimentalConfig?: ExperimentalConfig;
      onChange: (updates: Partial<ExperimentalConfig>) => void;
@@ -3139,7 +3065,7 @@ index b4a70476..31365dbd 100644
      onSave,
  }) => {
      const { t } = useTranslation();
-@@ -165,6 +169,48 @@ export const AgentSettings: React.FC<AgentSettingsProps> = ({
+@@ -558,6 +562,48 @@ export const AgentSettings: React.FC<AgentSettingsProps> = ({
                  </div>
              </div>
  
@@ -3189,7 +3115,7 @@ index b4a70476..31365dbd 100644
              {onSave && (
                  <div className="flex justify-end pt-2">
 diff --git a/src/components/settings/ThinkingBudget.tsx b/src/components/settings/ThinkingBudget.tsx
-index e846b6c8..3b31d12e 100644
+index 3d5ede9e..5dbf2ccc 100644
 --- a/src/components/settings/ThinkingBudget.tsx
 +++ b/src/components/settings/ThinkingBudget.tsx
 @@ -1,4 +1,5 @@
@@ -3198,7 +3124,7 @@ index e846b6c8..3b31d12e 100644
  import { useTranslation, Trans } from "react-i18next";
  import { Save, Check, ChevronDown, Layers, HelpCircle, HardDrive, Trash2, AlertTriangle } from "lucide-react";
  import { request } from "../../utils/request";
-@@ -440,8 +441,11 @@ export default function ThinkingBudget({
+@@ -450,8 +451,11 @@ export default function ThinkingBudget({
  
              {/* 0. 服务端思考块回填 (Server-side Thought & Signature Restoration) */}
              {onThinkingStoreChange && (
@@ -3212,7 +3138,7 @@ index e846b6c8..3b31d12e 100644
                          <div className="flex items-center gap-2">
                              <span className="text-xs font-bold text-gray-900 dark:text-white">
                                  {t("proxy.config.thinking_budget.store_enabled", { defaultValue: "服务端思考块与签名回填" })}
-@@ -458,8 +462,9 @@ export default function ThinkingBudget({
+@@ -468,8 +472,9 @@ export default function ThinkingBudget({
                      </div>
                      <input
                          type="checkbox"
@@ -3223,7 +3149,7 @@ index e846b6c8..3b31d12e 100644
                          onChange={(e) => onThinkingStoreChange(e.target.checked)}
                      />
                  </div>
-@@ -1280,9 +1285,9 @@ export default function ThinkingBudget({
+@@ -1217,9 +1222,9 @@ export default function ThinkingBudget({
              )}
  
              {/* 清空思考块二次确认弹窗 */}
@@ -3236,7 +3162,7 @@ index e846b6c8..3b31d12e 100644
                          <div className="flex items-start gap-3">
                              <div className="p-2 rounded-full bg-error/10 text-error shrink-0 mt-0.5">
                                  <AlertTriangle size={20} />
-@@ -1335,10 +1340,11 @@ export default function ThinkingBudget({
+@@ -1272,10 +1277,11 @@ export default function ThinkingBudget({
                          </div>
                      </div>
                      <div
@@ -3251,10 +3177,10 @@ index e846b6c8..3b31d12e 100644
          </div>
      );
 diff --git a/src/locales/en.json b/src/locales/en.json
-index 39b37f6a..7b1bc1b6 100644
+index ba136f3f..be343b0b 100644
 --- a/src/locales/en.json
 +++ b/src/locales/en.json
-@@ -684,7 +684,17 @@
+@@ -703,7 +703,17 @@
        "update_dialog_title": "New Version Available",
        "update_confirm_desc": "A new version is available. Would you like to download and update now? The app will automatically restart once downloaded.",
        "current_version": "Current Version",
@@ -3273,7 +3199,7 @@ index 39b37f6a..7b1bc1b6 100644
      },
      "advanced_thinking": {
        "title": "Advanced Thinking & Global Config",
-@@ -939,6 +949,10 @@
+@@ -958,6 +968,10 @@
        "experimental": {
          "title": "Experimental Settings",
          "title_tooltip": "Exploratory features that may be adjusted or removed in future versions.",
@@ -3284,16 +3210,16 @@ index 39b37f6a..7b1bc1b6 100644
          "enable_usage_scaling": "Enable Usage Scaling",
          "enable_usage_scaling_tooltip": "For all compatible protocols (Claude/OpenAI/Gemini). Enables aggressive scaling and multi-phase context compression when total input exceeds 30k tokens. Note: Reported usage will not reflect actual billing after enabling.",
          "compression_level_label": "Context Compression Level",
-@@ -1055,6 +1069,8 @@
+@@ -1074,6 +1088,8 @@
          "claude_default_hint": "Official default mode enabled: adheres to standard Anthropic specifications without custom limits.",
          "store_enabled": "Server-side Thought & Signature Restoration",
          "store_enabled_desc": "Automatically captures and persists reasoning blocks and encrypted signatures. When client agents (e.g. Cline, Roo, Claude Code) omit thought content in multi-turn chats, the gateway restores them to prevent upstream 400 errors or context loss.",
 +        "store_enabled_started": "Server-side Thought & Signature Restoration started",
 +        "store_enabled_stopped": "Server-side Thought & Signature Restoration stopped",
          "default_on_tag": "Default On",
-         "claude_thinking_note": "💡 Claude Model Note: Anthropic official models only differentiate between `-thinking` (e.g. claude-3-7-sonnet-thinking) and standard models. This custom budget specifically manages quotas for thinking models; calling standard models will not trigger upstream reasoning.",
-         "max_memory_turns_label": "Max Memory Thinking Turns per Session",
-@@ -1118,7 +1134,24 @@
+         "global_compaction_strip": "Global Compaction Signature Stripping",
+         "global_compaction_strip_desc": "Kept disabled by default; only triggers signature stripping for Claude Code CLI and Desktop (Cowork) explicit continuation markers. When enabled, works globally across all protocols and clients: automatically detects context drops and in-place collapses, isolating invalid signatures with official bypass sentinels.",
+@@ -1141,7 +1157,24 @@
          "title": "Multimodal Settings"
        },
        "agent_settings": {
@@ -3319,7 +3245,7 @@ index 39b37f6a..7b1bc1b6 100644
        }
      },
      "cloudflared": {
-@@ -1621,6 +1654,9 @@
+@@ -1720,6 +1753,9 @@
      "restart_prompt": "Update is ready. Restart the app to apply changes.",
      "btn_restart": "Restart Now",
      "btn_later": "Later",
@@ -3330,10 +3256,10 @@ index 39b37f6a..7b1bc1b6 100644
        "not_ready": "Update artifacts are not ready yet. Will retry later.",
        "failed": "Auto-update failed"
 diff --git a/src/locales/zh-TW.json b/src/locales/zh-TW.json
-index 04078d6f..3572b656 100644
+index 608e7669..34d6b66f 100644
 --- a/src/locales/zh-TW.json
 +++ b/src/locales/zh-TW.json
-@@ -639,7 +639,17 @@
+@@ -665,7 +665,17 @@
        "update_dialog_title": "發現新版本可用",
        "update_confirm_desc": "檢測到有新版本發布。是否立即下載更新？用戶端將在下載完成後自動熱重新啟動以套用更新。",
        "current_version": "目前版本",
@@ -3352,7 +3278,7 @@ index 04078d6f..3572b656 100644
      },
      "debug": {
        "debug_logging": "除錯日誌",
-@@ -898,6 +908,10 @@
+@@ -924,6 +934,10 @@
        "experimental": {
          "title": "實驗性設定 (Experimental)",
          "title_tooltip": "探索性功能，可能在未來版本中調整或移除。",
@@ -3363,7 +3289,7 @@ index 04078d6f..3572b656 100644
          "enable_usage_scaling": "啟用用量縮放",
          "enable_usage_scaling_tooltip": "支援所有相容協定 (Claude/OpenAI/Gemini)。當總輸入超過 30k Token 時開啟激進縮放與分階段上下文去噪提純，防止在大上下文下頻繁觸發用戶端壓縮。注意：開啟後用戶端顯示的用量不再代表實際計費點數。",
          "compression_level_label": "智能上下文壓縮等級",
-@@ -1007,6 +1021,8 @@
+@@ -1033,6 +1047,8 @@
          "claude_default_hint": "已啟用官方預設模式：完全按官方協議規範透傳，不注入額外自訂預算限制。",
          "store_enabled": "伺服端思考塊與簽名回填",
          "store_enabled_desc": "自動攔截並持久化思考過程與加密簽名；當商業 Agent（如 Cline, Roo, Claude Code 等）多輪對話未帶回思考時由伺服端自動補齊，杜絕上游 400 報錯或上下文遺失。",
@@ -3372,7 +3298,7 @@ index 04078d6f..3572b656 100644
          "default_on_tag": "預設開啟",
          "claude_thinking_note": "💡 Claude 模型說明：Anthropic 官方模型列表僅區分帶 `-thinking`（如 claude-3-7-sonnet-thinking）與普通模型。本自訂預算專門控制帶 thinking 模型的思考配額；若調用普通非 thinking 模型，上游不產生思考過程。",
          "max_memory_turns_label": "每輪對話的記憶體 Thinking 儲存最大輪次",
-@@ -1066,6 +1082,26 @@
+@@ -1092,6 +1108,26 @@
        "prompt_multimodal": {
          "title": "全域提示詞與多模態設定 (Prompt & Multimodal)"
        },
@@ -3399,7 +3325,7 @@ index 04078d6f..3572b656 100644
        "log_retention_title": "請求日誌保留",
        "log_retention_body_hours": "請求主體保留小時數",
        "log_retention_storage_gb": "請求日誌上限 (GB)",
-@@ -1607,7 +1643,10 @@
+@@ -1712,7 +1748,10 @@
      },
      "restart_prompt": "更新已準備就緒，重新啟動應用程式後即可完成升級。",
      "btn_restart": "立即重新啟動",
@@ -3412,10 +3338,10 @@ index 04078d6f..3572b656 100644
    "login": {
      "title": "安全存取控制",
 diff --git a/src/locales/zh.json b/src/locales/zh.json
-index 4f4c21a7..d56c9695 100644
+index 3cd0afc4..c44a3379 100644
 --- a/src/locales/zh.json
 +++ b/src/locales/zh.json
-@@ -682,7 +682,17 @@
+@@ -701,7 +701,17 @@
        "update_dialog_title": "发现新版本可用",
        "update_confirm_desc": "检测到有新版本发布。是否立即下载更新？客户端将在下载完成后自动热重启以应用更新。",
        "current_version": "当前版本",
@@ -3434,7 +3360,7 @@ index 4f4c21a7..d56c9695 100644
      },
      "advanced_thinking": {
        "title": "高级思维与全局配置",
-@@ -930,6 +940,10 @@
+@@ -949,6 +959,10 @@
        "experimental": {
          "title": "实验性设置 (Experimental)",
          "title_tooltip": "探索性功能，可能在未来版本中调整或移除。",
@@ -3445,16 +3371,16 @@ index 4f4c21a7..d56c9695 100644
          "enable_usage_scaling": "启用用量缩放",
          "enable_usage_scaling_tooltip": "支持所有兼容协议 (Claude/OpenAI/Gemini)。当总输入超过 30k Token 时开启激进缩放与分阶段上下文去噪提纯，防止在大上下文下频繁触发客户端压缩。注意：开启后客户端显示的用量不再代表实际计费点数。",
          "compression_level_label": "智能上下文压缩等级",
-@@ -1046,6 +1060,8 @@
+@@ -1065,6 +1079,8 @@
          "claude_default_hint": "已启用官方默认模式：完全按官方协议规范透传，不注入额外自定义预算限制。",
          "store_enabled": "服务端思考块与签名回填",
          "store_enabled_desc": "自动截获并持久化思考过程与加密签名；当商业 Agent（如 Cline, Roo, Claude Code 等）多轮对话未带回思考时由服务端自动补齐，杜绝上游 400 报错或上下文丢失。",
 +        "store_enabled_started": "服务端思考块与签名回填已启动",
 +        "store_enabled_stopped": "服务端思考块与签名回填已停止",
          "default_on_tag": "默认开启",
-         "claude_thinking_note": "💡 Claude 模型说明：Anthropic 官方模型列表仅区分带 `-thinking`（如 claude-3-7-sonnet-thinking）与普通模型。本自定义预算专门控制带 thinking 模型的思考配额；若调用普通非 thinking 模型，上游不产生思考过程。",
-         "max_memory_turns_label": "每轮对话的内存 Thinking 存储最大轮次",
-@@ -1109,7 +1125,24 @@
+         "global_compaction_strip": "全局压缩剥离签名",
+         "global_compaction_strip_desc": "默认情况下保持关闭，仅对 Claude Code CLI 与 Desktop (Cowork) 的特定压缩特征触发签名剥离。开启后全局生效（协议无关、客户端无关），自动识别会话上下文回落与就地折叠，隔离失效签名并以官方哨兵锁定。",
+@@ -1132,7 +1148,24 @@
          "title": "多模态交互设置 (Multimodal Settings)"
        },
        "agent_settings": {
@@ -3480,7 +3406,7 @@ index 4f4c21a7..d56c9695 100644
        }
      },
      "cloudflared": {
-@@ -1590,7 +1623,10 @@
+@@ -1689,7 +1722,10 @@
      },
      "restart_prompt": "更新已准备就绪，重启应用后即可完成升级。",
      "btn_restart": "立即重启",
@@ -3493,10 +3419,10 @@ index 4f4c21a7..d56c9695 100644
    "login": {
      "title": "安全访问控制",
 diff --git a/src/pages/Accounts.tsx b/src/pages/Accounts.tsx
-index b6a108e0..ff28319b 100644
+index 8957ff3d..3e032a0c 100644
 --- a/src/pages/Accounts.tsx
 +++ b/src/pages/Accounts.tsx
-@@ -453,7 +453,7 @@ function Accounts() {
+@@ -455,7 +455,7 @@ function Accounts() {
    const [isRefreshConfirmOpen, setIsRefreshConfirmOpen] = useState(false);
  
    const handleRefreshClick = () => {
@@ -3505,7 +3431,7 @@ index b6a108e0..ff28319b 100644
    };
  
    const executeRefresh = async () => {
-@@ -738,7 +738,7 @@ function Accounts() {
+@@ -740,7 +740,7 @@ function Accounts() {
        />
  
        {/* 顶部工具栏:搜索、过滤和操作按钮 */}
@@ -3514,7 +3440,7 @@ index b6a108e0..ff28319b 100644
          {/* 搜索框 - 响应式:大屏显示输入框,小屏显示图标 */}
          <div className="hidden lg:block flex-none w-40 relative transition-all focus-within:w-48">
            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-@@ -934,13 +934,13 @@ function Accounts() {
+@@ -936,13 +936,13 @@ function Accounts() {
          <div className="flex-1 min-w-[8px]"></div>
  
          {/* 操作按钮组 */}
@@ -3530,7 +3456,7 @@ index b6a108e0..ff28319b 100644
                  onClick={handleBatchDelete}
                  title={t("accounts.delete_selected", {
                    count: selectedIds.size,
-@@ -952,7 +952,7 @@ function Accounts() {
+@@ -954,7 +954,7 @@ function Accounts() {
                  </span>
                </button>
                <button
@@ -3539,7 +3465,7 @@ index b6a108e0..ff28319b 100644
                  onClick={() => handleBatchToggleProxy(false)}
                  title={t("accounts.disable_proxy_selected", {
                    count: selectedIds.size,
-@@ -966,7 +966,7 @@ function Accounts() {
+@@ -968,7 +968,7 @@ function Accounts() {
                  </span>
                </button>
                <button
@@ -3548,7 +3474,7 @@ index b6a108e0..ff28319b 100644
                  onClick={() => handleBatchToggleProxy(true)}
                  title={t("accounts.enable_proxy_selected", {
                    count: selectedIds.size,
-@@ -983,7 +983,7 @@ function Accounts() {
+@@ -985,7 +985,7 @@ function Accounts() {
            )}
  
            <button
@@ -3557,7 +3483,7 @@ index b6a108e0..ff28319b 100644
              onClick={handleRefreshClick}
              disabled={isRefreshing}
              title={
-@@ -1005,7 +1005,7 @@ function Accounts() {
+@@ -1007,7 +1007,7 @@ function Accounts() {
            </button>
  
            <button
@@ -3566,7 +3492,7 @@ index b6a108e0..ff28319b 100644
              onClick={() => setIsWarmupConfirmOpen(true)}
              disabled={isWarmuping}
              title={
-@@ -1026,13 +1026,13 @@ function Accounts() {
+@@ -1028,13 +1028,13 @@ function Accounts() {
              </span>
            </button>
  
@@ -3583,7 +3509,7 @@ index b6a108e0..ff28319b 100644
                checked={showAllQuotas}
                onChange={toggleShowAllQuotas}
              />
-@@ -1040,7 +1040,7 @@ function Accounts() {
+@@ -1042,7 +1042,7 @@ function Accounts() {
            <div className="w-px h-4 bg-gray-200 dark:bg-gray-700 self-center mx-1 shrink-0"></div>
  
            <button
@@ -3592,7 +3518,7 @@ index b6a108e0..ff28319b 100644
              onClick={handleImportJson}
              title={t("accounts.import_json")}
            >
-@@ -1051,7 +1051,7 @@ function Accounts() {
+@@ -1053,7 +1053,7 @@ function Accounts() {
            </button>
  
            <button
@@ -3602,10 +3528,10 @@ index b6a108e0..ff28319b 100644
              title={
                selectedIds.size > 0
 diff --git a/src/pages/ApiProxy.tsx b/src/pages/ApiProxy.tsx
-index 3c855c1f..eec92964 100644
+index 38f4f089..0c893887 100644
 --- a/src/pages/ApiProxy.tsx
 +++ b/src/pages/ApiProxy.tsx
-@@ -748,6 +748,23 @@ export default function ApiProxy() {
+@@ -734,6 +734,23 @@ export default function ApiProxy() {
          saveConfig(newConfig);
      };
  
@@ -3629,7 +3555,7 @@ index 3c855c1f..eec92964 100644
      const updateCircuitBreakerConfig = (newBreakerConfig: CircuitBreakerConfig) => {
          if (!appConfig) return;
          const newConfig = {
-@@ -2079,6 +2096,8 @@ print(response.choices[0].message.content)`;
+@@ -2061,6 +2078,8 @@ print(response.choices[0].message.content)`;
                                      <AgentSettings
                                          experimentalConfig={appConfig.proxy.experimental}
                                          onChange={updateExperimentalConfig}
@@ -3639,7 +3565,7 @@ index 3c855c1f..eec92964 100644
                                      />
                                  </CollapsibleCard>
 diff --git a/src/pages/Settings.tsx b/src/pages/Settings.tsx
-index c51ae1d9..5378cf2c 100644
+index 84a0a0e2..d37b7eae 100644
 --- a/src/pages/Settings.tsx
 +++ b/src/pages/Settings.tsx
 @@ -1,5 +1,6 @@
@@ -3650,17 +3576,14 @@ index c51ae1d9..5378cf2c 100644
  import { request as invoke } from '../utils/request';
  import { open } from '@tauri-apps/plugin-dialog';
  import { useConfigStore } from '../stores/useConfigStore';
-@@ -40,8 +41,9 @@ function Settings() {
-     const { t, i18n } = useTranslation();
+@@ -40,6 +41,7 @@ function Settings() {
+     const { t } = useTranslation();
      const { config, loadConfig, saveConfig, updateLanguage, updateTheme } = useConfigStore();
      const { enable, disable, isEnabled } = useDebugConsole();
 +    const [isSaving, setIsSaving] = useState(false);
      const [activeTab, setActiveTab] = useState<'general' | 'account' | 'proxy' | 'advanced' | 'debug' | 'about'>('general');
--    const [appVersion, setAppVersion] = useState<string>('4.8.9');
-+    const [appVersion, setAppVersion] = useState<string>('4.9.0');
+     const [appVersion, setAppVersion] = useState<string>('4.9.7-beta.3');
      const [formData, setFormData] = useState<AppConfig>({
-         language: 'zh',
-         theme: 'system',
 @@ -129,6 +131,10 @@ function Settings() {
      const [isBrewSuccessOpen, setIsBrewSuccessOpen] = useState(false);
      const [isUpdateConfirmOpen, setIsUpdateConfirmOpen] = useState(false);
@@ -3743,7 +3666,7 @@ index c51ae1d9..5378cf2c 100644
                      </button>
                  </div>
  
-@@ -1589,7 +1623,7 @@ function Settings() {
+@@ -1587,7 +1621,7 @@ function Settings() {
  
                                      {/* GitHub Card */}
                                      <a
@@ -3752,7 +3675,7 @@ index c51ae1d9..5378cf2c 100644
                                          target="_blank"
                                          rel="noreferrer"
                                          className="bg-white dark:bg-base-100 p-4 rounded-2xl border border-gray-100 dark:border-base-300 shadow-sm hover:shadow-md hover:border-gray-300 dark:hover:border-gray-600 transition-all group flex flex-col items-center text-center gap-3 cursor-pointer"
-@@ -1705,14 +1739,28 @@ function Settings() {
+@@ -1703,14 +1737,28 @@ function Settings() {
  
                                  {/* Check for Updates */}
                                  <div className="flex flex-col items-center gap-3">
@@ -3789,7 +3712,7 @@ index c51ae1d9..5378cf2c 100644
  
                                      {/* Update Status */}
                                      {updateInfo && !isCheckingUpdate && (
-@@ -1754,6 +1802,16 @@ function Settings() {
+@@ -1752,6 +1800,16 @@ function Settings() {
                                                                  </button>
                                                              )
                                                          )}
@@ -3806,7 +3729,7 @@ index c51ae1d9..5378cf2c 100644
                                                          <a
                                                              href={updateInfo.downloadUrl}
                                                              target="_blank"
-@@ -1946,60 +2004,94 @@ function Settings() {
+@@ -1944,60 +2002,94 @@ function Settings() {
                                  </div>
                              )}
                          </div>
@@ -3996,7 +3919,7 @@ index 34699eab..2cb3fa85 100644
          </motion.div>
      );
 diff --git a/src/types/config.ts b/src/types/config.ts
-index 8e6e5eba..bd3c17f5 100644
+index 30e2d589..13a0f3dd 100644
 --- a/src/types/config.ts
 +++ b/src/types/config.ts
 @@ -27,6 +27,7 @@ export interface ProxyConfig {
