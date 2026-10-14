@@ -285,7 +285,7 @@ elif git apply --3way "$ACTIVE_PATCH" 2>/dev/null && [ -z "$(git diff --name-onl
     log_success "Cursor 适配补丁通过三向合并 (3-Way Merge) 自动合入成功！"
 else
     # 若三向合并留下冲突标记，先重置再尝试备用补丁或 patch 容错
-    git checkout -- . 2>/dev/null || true
+    git reset --hard HEAD 2>/dev/null || true
     git clean -fd -- ':!patches' ':!build_and_install.sh' ':!update_and_rebuild.sh' 2>/dev/null || true
 
     FALLBACK_PATCH=""
@@ -298,7 +298,8 @@ else
     if [ -n "$FALLBACK_PATCH" ] && git apply --3way "$FALLBACK_PATCH" 2>/dev/null && [ -z "$(git diff --name-only --diff-filter=U)" ]; then
         log_success "已通过备用补丁 ($(basename "$FALLBACK_PATCH")) 三向合并成功！"
     else
-        git checkout -- . 2>/dev/null || true
+        git reset --hard HEAD 2>/dev/null || true
+        git clean -fd -- ':!patches' ':!build_and_install.sh' ':!update_and_rebuild.sh' 2>/dev/null || true
         log_warn "标准 patch 匹配发生偏移，尝试容错合并..."
         if patch -p1 -N < "$ACTIVE_PATCH"; then
             log_success "Cursor 适配补丁通过模糊匹配应用成功！"
