@@ -95,6 +95,8 @@ pub struct StreamingState {
     // [FIX #3379] Track whether any text_delta was emitted this turn (guard G7)
     pub text_delta_emitted_this_turn: bool,
     pub thinking_acc: crate::proxy::thinking_store::TurnAccumulator,
+    /// 缓存流式过程中接收到的最近一次使用量元数据，防止单独下发 finishReason 或无元数据收尾时 Token 统计归零
+    pub last_usage: Option<UsageMetadata>,
 }
 
 impl StreamingState {
@@ -126,6 +128,7 @@ impl StreamingState {
             registered_tool_names: Vec::new(),
             text_delta_emitted_this_turn: false,
             thinking_acc: crate::proxy::thinking_store::TurnAccumulator::new(),
+            last_usage: None,
         }
     }
 
@@ -264,6 +267,36 @@ impl StreamingState {
         chunks
     }
 
+    /// 为 trailingSignature 发射独立的自闭合 synthetic thinking 块，并合法递增 block_index
+    pub fn emit_trailing_signature_block(&mut self, trailing_sig: String) -> Vec<Bytes> {
+        let mut chunks = Vec::new();
+        if self.block_type != BlockType::None {
+            chunks.extend(self.end_block());
+        }
+
+        chunks.push(self.emit(
+            "content_block_start",
+            json!({
+                "type": "content_block_start",
+                "index": self.block_index,
+                "content_block": { "type": "thinking", "thinking": "" }
+            }),
+        ));
+        chunks.push(self.emit_delta("thinking_delta", json!({ "thinking": "" })));
+        chunks.push(self.emit_delta("signature_delta", json!({ "signature": trailing_sig })));
+        chunks.push(self.emit(
+            "content_block_stop",
+            json!({
+                "type": "content_block_stop",
+                "index": self.block_index
+            }),
+        ));
+        self.block_index += 1;
+        self.block_type = BlockType::None;
+
+        chunks
+    }
+
     /// 发送 delta 事件
     pub fn emit_delta(&self, delta_type: &str, delta_content: serde_json::Value) -> Bytes {
         let mut delta = json!({ "type": delta_type });
@@ -369,7 +402,8 @@ impl StreamingState {
             "end_turn"
         };
 
-        let usage = usage_metadata
+        let effective_usage = usage_metadata.or(self.last_usage.as_ref());
+        let usage = effective_usage
             .map(|u| {
                 // [FIX] Record actual token usage for calibrator learning
                 // Now properly pairs estimated tokens from request with actual tokens from response
@@ -391,9 +425,7 @@ impl StreamingState {
             .unwrap_or(Usage {
                 input_tokens: 0,
                 output_tokens: 0,
-                cache_read_input_tokens: None,
-                cache_creation_input_tokens: None,
-                server_tool_use: None,
+                ..Default::default()
             });
 
         chunks.push(self.emit(
@@ -426,6 +458,7 @@ impl StreamingState {
     }
 
     /// 获取当前块索引
+    #[allow(dead_code)]
     pub fn current_block_index(&self) -> usize {
         self.block_index
     }
@@ -551,7 +584,7 @@ impl StreamingState {
                 json!({
                     "type": "error",
                     "error": {
-                        "type": report.classified.error_type,
+                        "type": "api_error",
                         "message": report.client_message(),
                         "function": report.function,
                         "call_site": report.call_site(),
@@ -600,7 +633,9 @@ impl<'a> PartProcessor<'a> {
         if let Some(fc) = &part.function_call {
             // 先安全处理 trailingSignature (B4/C3 场景)
             if self.state.has_trailing_signature() {
-                chunks.extend(self.state.flush_trailing_signature());
+                if let Some(trailing_sig) = self.state.trailing_signature.take() {
+                    chunks.extend(self.state.emit_trailing_signature_block(trailing_sig));
+                }
             }
 
             chunks.extend(self.process_function_call(fc, signature));
@@ -637,9 +672,11 @@ impl<'a> PartProcessor<'a> {
     fn process_thinking(&mut self, text: &str, signature: Option<String>) -> Vec<Bytes> {
         let mut chunks = Vec::new();
 
-        // 若之前暂存了 trailingSignature，直接合入当前即将开启/继续的 Thinking 块签名槽位
-        if let Some(trailing_sig) = self.state.trailing_signature.take() {
-            self.state.store_signature(Some(trailing_sig));
+        // 处理之前的 trailingSignature
+        if self.state.has_trailing_signature() {
+            if let Some(trailing_sig) = self.state.trailing_signature.take() {
+                chunks.extend(self.state.emit_trailing_signature_block(trailing_sig));
+            }
         }
 
         // 开始或继续 thinking 块
@@ -734,7 +771,9 @@ impl<'a> PartProcessor<'a> {
 
         // 先安全冲刷之前的 trailingSignature（必须在设置 has_content = true 之前）
         if self.state.has_trailing_signature() {
-            chunks.extend(self.state.flush_trailing_signature());
+            if let Some(trailing_sig) = self.state.trailing_signature.take() {
+                chunks.extend(self.state.emit_trailing_signature_block(trailing_sig));
+            }
         }
 
         // [FIX #859] Mark that we have received actual content (text)
@@ -1537,109 +1576,53 @@ mod tests {
     }
 
     #[test]
-    fn test_trailing_signature_before_tool_use_properly_closes_thinking_block() {
+    fn test_handle_parse_error_emits_standard_api_error() {
         let mut state = StreamingState::new();
-        let mut processor = PartProcessor::new(&mut state);
+        // Call handle_parse_error 4 times to exceed threshold (> 3)
+        let _ = state.handle_parse_error("invalid chunk 1");
+        let _ = state.handle_parse_error("invalid chunk 2");
+        let _ = state.handle_parse_error("invalid chunk 3");
+        let chunks = state.handle_parse_error("invalid chunk 4");
 
-        // 1. Empty text part with signature (sets trailing_signature when no block is open)
-        let sig_part = GeminiPart {
-            text: Some(String::new()),
-            function_call: None,
-            inline_data: None,
-            thought: None,
-            thought_signature: Some("sig_123".to_string()),
-            function_response: None,
-        };
-        let chunks1 = processor.process(&sig_part);
-        assert!(chunks1.is_empty());
-
-        // 2. FunctionCall part follows
-        let fc_part = GeminiPart {
-            text: None,
-            function_call: Some(FunctionCall {
-                name: "WebSearch".to_string(),
-                args: Some(json!({"query": "rust"})),
-                id: Some("call_ws_1".to_string()),
-            }),
-            inline_data: None,
-            thought: None,
-            thought_signature: None,
-            function_response: None,
-        };
-        let chunks2 = processor.process(&fc_part);
-        let output = chunks_to_string(&chunks2);
-
-        // Index 0 must be thinking block properly started AND stopped with signature_delta
+        let output = chunks_to_string(&chunks);
+        assert!(output.contains("event: error"), "Must emit error event");
         assert!(
-            output.contains(r#""type":"thinking""#) && output.contains(r#""index":0"#),
-            "output={}",
+            output.contains(r#""type":"api_error""#),
+            "Anthropic SSE error type must be standard 'api_error', got: {}",
             output
         );
         assert!(
-            output.contains(r#""type":"signature_delta""#)
-                && output.contains(r#""signature":"sig_123""#),
-            "output={}",
-            output
-        );
-        // Index 1 must be the tool_use block (no index collision with index 0)
-        assert!(
-            output.contains(r#""index":1"#) && output.contains(r#""name":"WebSearch""#),
-            "output={}",
-            output
+            !output.contains(r#""type":"decode_error""#),
+            "Must not leak internal non-standard 'decode_error'"
         );
     }
 
     #[test]
-    fn test_empty_text_signature_attaches_to_open_thinking_block() {
+    fn test_trailing_signature_synthetic_block_is_closed_and_increments_index() {
         let mut state = StreamingState::new();
+        state.set_trailing_signature(Some("sig_test_trailing_123".to_string()));
+        assert!(state.has_trailing_signature());
+
         let mut processor = PartProcessor::new(&mut state);
-
-        // 1. Thinking part without signature
-        let think_part = GeminiPart {
-            text: Some("Thinking about the problem...".to_string()),
-            function_call: None,
-            inline_data: None,
-            thought: Some(true),
-            thought_signature: None,
-            function_response: None,
-        };
-        let mut all_chunks = processor.process(&think_part);
-
-        // 2. Empty text part carrying the signature
-        let sig_part = GeminiPart {
-            text: Some(String::new()),
-            function_call: None,
-            inline_data: None,
-            thought: None,
-            thought_signature: Some("sig_456".to_string()),
-            function_response: None,
-        };
-        all_chunks.extend(processor.process(&sig_part));
-
-        // 3. Normal text part
-        let text_part = GeminiPart {
-            text: Some("Here is the answer.".to_string()),
+        let part = GeminiPart {
+            text: Some("Next turn text".to_string()),
             function_call: None,
             inline_data: None,
             thought: None,
             thought_signature: None,
             function_response: None,
         };
-        all_chunks.extend(processor.process(&text_part));
-        all_chunks.extend(state.emit_finish(Some("STOP"), None));
+        let chunks = processor.process(&part);
+        let output = chunks_to_string(&chunks);
 
-        let output = chunks_to_string(&all_chunks);
-        // Thinking block at index 0 gets sig_456 and closes cleanly before text block at index 1
-        assert!(
-            output.contains(r#""type":"signature_delta""#)
-                && output.contains(r#""signature":"sig_456""#),
-            "output={}",
-            output
-        );
-        assert!(
-            output.contains(r#""index":1"#) && output.contains(r#"Here is the answer."#),
-            "output={}",
-            output
-        );
+        // 1. Synthetic thinking block (index 0) must have start, delta, signature_delta, stop
+        assert!(output.contains(r#""type":"content_block_start""#));
+        assert!(output.contains(r#""type":"signature_delta""#));
+        assert!(output.contains("sig_test_trailing_123"));
+        assert!(output.contains(r#""type":"content_block_stop","index":0"#));
+
+        // 2. Next text block must have index 1, NOT duplicate index 0
+        assert!(output.contains(r#""type":"content_block_start","index":1"#));
+        assert!(output.contains("Next turn text"));
     }
 }
