@@ -2171,54 +2171,52 @@ function Settings() {
                 </ModalDialog>
 
                 {/* Support Modal */}
-                {isSupportModalOpen && createPortal(
-                    <div className="modal modal-open z-[100] fixed inset-0 flex items-center justify-center p-4">
-                        <div data-tauri-drag-region className="fixed top-0 left-0 right-0 h-8 z-[110]" />
-                        <div className="modal-box relative z-10 max-w-2xl w-full bg-white dark:bg-base-100 shadow-2xl rounded-3xl p-0 overflow-hidden transform transition-all animate-in fade-in zoom-in-95 duration-300">
-                            <div className="flex flex-col items-center p-8">
-                                <div className="w-16 h-16 bg-pink-50 dark:bg-pink-900/20 rounded-2xl flex items-center justify-center mb-6 shadow-sm">
-                                    <Coffee className="w-8 h-8 text-pink-500" />
-                                </div>
-
-                                <h3 className="text-2xl font-black text-gray-900 dark:text-base-content mb-3">{t('settings.about.support_title')}</h3>
-                                <p className="text-gray-500 dark:text-gray-400 text-sm text-center mb-8 max-w-md leading-relaxed">
-                                    {t('settings.about.support_desc')}
-                                </p>
-
-                                {/* QR Codes Grid */}
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full mb-8">
-                                    {/* Alipay */}
-                                    <div className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-gray-50 dark:bg-base-200 border border-gray-100 dark:border-base-300">
-                                        <div className="w-full aspect-square relative bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100">
-                                            <img src="/images/donate/alipay.png" alt="Alipay" className="w-full h-full object-contain" />
-                                        </div>
-                                        <span className="text-xs font-bold text-gray-700 dark:text-gray-300">{t('settings.about.support_alipay')}</span>
-                                    </div>
-
-                                    {/* WeChat */}
-                                    <div className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-gray-50 dark:bg-base-200 border border-gray-100 dark:border-base-300">
-                                        <div className="w-full aspect-square relative bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100">
-                                            <img src="/images/donate/wechat.png" alt="WeChat" className="w-full h-full object-contain" />
-                                        </div>
-                                        <span className="text-xs font-bold text-gray-700 dark:text-gray-300">{t('settings.about.support_wechat')}</span>
-                                    </div>
-
-                                    {/* Buy Me a Coffee */}
-                                    <div className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-gray-50 dark:bg-base-200 border border-gray-100 dark:border-base-300">
-                                        <div className="w-full aspect-square relative bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100">
-                                            <img src="/images/donate/coffee.png" alt="Buy Me A Coffee" className="w-full h-full object-contain" />
-                                        </div>
-                                        <span className="text-xs font-bold text-gray-700 dark:text-gray-300">{t('settings.about.support_buymeacoffee')}</span>
-                                    </div>
-                                </div>
-
-                                <button
-                                    onClick={() => setIsSupportModalOpen(false)}
-                                    className="w-full md:w-auto px-12 py-3 bg-gray-100 dark:bg-base-300 text-gray-700 dark:text-gray-200 font-bold rounded-xl hover:bg-gray-200 dark:hover:bg-base-200 transition-all"
-                                >
-                                    {t('common.close') || 'Close'}
-                                </button>
+                <div className={`modal ${isSupportModalOpen ? 'modal-open' : ''} z-[100]`}>
+                    <div data-tauri-drag-region className="fixed top-0 left-0 right-0 h-8 z-[110]" />
+                    <div className="modal-box relative max-w-2xl bg-white dark:bg-base-100 shadow-2xl rounded-3xl p-0 overflow-hidden transform transition-all animate-in fade-in zoom-in-95 duration-300">
+                        <div className="flex flex-col items-center p-8">
+                            <div className="w-16 h-16 bg-pink-50 dark:bg-pink-900/20 rounded-2xl flex items-center justify-center mb-6 shadow-sm">
+                                <Coffee className="w-8 h-8 text-pink-500" />
                             </div>
+
+                            <h3 className="text-2xl font-black text-gray-900 dark:text-base-content mb-3">{t('settings.about.support_title')}</h3>
+                            <p className="text-gray-500 dark:text-gray-400 text-sm text-center mb-8 max-w-md leading-relaxed">
+                                {t('settings.about.support_desc')}
+                            </p>
+
+                            {/* QR Codes Grid */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full mb-8">
+                                {/* Alipay */}
+                                <div className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-gray-50 dark:bg-base-200 border border-gray-100 dark:border-base-300">
+                                    <div className="w-full aspect-square relative bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100">
+                                        <img src="/images/donate/alipay.png" alt="Alipay" className="w-full h-full object-contain" />
+                                    </div>
+                                    <span className="text-xs font-bold text-gray-700 dark:text-gray-300">{t('settings.about.support_alipay')}</span>
+                                </div>
+
+                                {/* WeChat */}
+                                <div className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-gray-50 dark:bg-base-200 border border-gray-100 dark:border-base-300">
+                                    <div className="w-full aspect-square relative bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100">
+                                        <img src="/images/donate/wechat.png" alt="WeChat" className="w-full h-full object-contain" />
+                                    </div>
+                                    <span className="text-xs font-bold text-gray-700 dark:text-gray-300">{t('settings.about.support_wechat')}</span>
+                                </div>
+
+                                {/* Buy Me a Coffee */}
+                                <div className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-gray-50 dark:bg-base-200 border border-gray-100 dark:border-base-300">
+                                    <div className="w-full aspect-square relative bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100">
+                                        <img src="/images/donate/coffee.png" alt="Buy Me A Coffee" className="w-full h-full object-contain" />
+                                    </div>
+                                    <span className="text-xs font-bold text-gray-700 dark:text-gray-300">{t('settings.about.support_buymeacoffee')}</span>
+                                </div>
+                            </div>
+
+                            <button
+                                onClick={() => setIsSupportModalOpen(false)}
+                                className="w-full md:w-auto px-12 py-3 bg-gray-100 dark:bg-base-300 text-gray-700 dark:text-gray-200 font-bold rounded-xl hover:bg-gray-200 dark:hover:bg-base-200 transition-all"
+                            >
+                                {t('common.close') || 'Close'}
+                            </button>
                         </div>
                     </div>
                     <div className="modal-backdrop bg-black/60 backdrop-blur-md fixed inset-0 z-[-1]" onClick={() => setIsSupportModalOpen(false)}></div>
