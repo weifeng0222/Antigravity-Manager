@@ -2167,6 +2167,34 @@ pub async fn handle_messages(
                             }
                         });
 
+                    let stream_mapped: std::pin::Pin<
+                        Box<dyn futures::Stream<Item = Result<Bytes, std::io::Error>> + Send>,
+                    > = if crate::proxy::is_cursor_cleaner_enabled() {
+                        Box::pin(async_stream::stream! {
+                            let mut cleaner = crate::proxy::common::cursor_cleaner::CursorStreamCleaner::new();
+                            let mut s = Box::pin(stream_mapped);
+                            while let Some(item) = s.next().await {
+                                match item {
+                                    Ok(b) => {
+                                        let text = String::from_utf8_lossy(&b);
+                                        let cleaned = cleaner.clean_chunk(&text);
+                                        if !cleaned.is_empty() {
+                                            yield Ok(Bytes::from(cleaned));
+                                        }
+                                    }
+                                    Err(e) => yield Err(e),
+                                }
+                            }
+                            if let Some(remaining) = cleaner.flush() {
+                                if !remaining.is_empty() {
+                                    yield Ok(Bytes::from(remaining));
+                                }
+                            }
+                        })
+                    } else {
+                        Box::pin(stream_mapped)
+                    };
+
                     return Response::builder()
                         .status(StatusCode::OK)
                         .header(header::CONTENT_TYPE, "text/event-stream")
@@ -2374,10 +2402,10 @@ pub async fn handle_messages(
                             }
                             Err(e) => {
                                 tracing::warn!(
-                                        "[{}] Stream collection error (possibly upstream interrupted): {}, retrying with another account...",
-                                        trace_id,
-                                        e
-                                    );
+                                    "[{}] Stream collection error (possibly upstream interrupted): {}, retrying with another account...",
+                                    trace_id,
+                                    e
+                                );
                                 last_error = format!("Stream collection error: {}", e);
                                 force_rotate = true;
                                 continue;

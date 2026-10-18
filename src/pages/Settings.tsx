@@ -1,5 +1,5 @@
 import { useState, useEffect, startTransition } from 'react';
-import { Save, Github, User, MessageCircle, ExternalLink, RefreshCw, Heart, Coffee, LayoutDashboard, Users, Network, Activity, BarChart3, Settings as SettingsIcon, Lock, CheckCircle2, Globe, Send, KeyRound, Copy, Check } from 'lucide-react';
+import { Save, Github, User, MessageCircle, ExternalLink, RefreshCw, Heart, Coffee, LayoutDashboard, Users, Network, Activity, BarChart3, Settings as SettingsIcon, Lock, CheckCircle2, Globe, Send, KeyRound, Copy, Check, Terminal } from 'lucide-react';
 import { request as invoke } from '../utils/request';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useConfigStore } from '../stores/useConfigStore';
@@ -44,6 +44,7 @@ function Settings() {
     const { t } = useTranslation();
     const { config, loadConfig, saveConfig, updateLanguage, updateTheme } = useConfigStore();
     const { enable, disable, isEnabled } = useDebugConsole();
+    const [isSaving, setIsSaving] = useState(false);
     const [activeTab, setActiveTab] = useState<'general' | 'account' | 'proxy' | 'advanced' | 'debug' | 'about'>('general');
     const [appVersion, setAppVersion] = useState<string>('4.9.8');
     const [formData, setFormData] = useState<AppConfig>({
@@ -190,6 +191,11 @@ function Settings() {
                 .catch(err => console.error('Failed to check Homebrew installation:', err));
         }
 
+        // 检测本地源码更新与重构脚本 (update_and_rebuild.sh) 是否可用
+        invoke<boolean>('check_rebuild_available')
+            .then(available => setIsRebuildAvailable(available))
+            .catch(() => setIsRebuildAvailable(false));
+
     }, [loadConfig]);
 
     useEffect(() => {
@@ -201,6 +207,8 @@ function Settings() {
     // 删除自动启用调试控制台的逻辑 - 改为用户手动控制
 
     const handleSave = async () => {
+        if (isSaving) return;
+        setIsSaving(true);
         try {
             // 校验：如果启用了上游代理但没有填写地址，给出提示
             const proxyEnabled = formData.proxy?.upstream_proxy?.enabled;
@@ -224,6 +232,8 @@ function Settings() {
             }
         } catch (error) {
             showToast(`${t('common.error')}: ${error}`, 'error');
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -256,6 +266,10 @@ function Settings() {
             setDetectingHub(false);
         }
     };
+
+    // Source rebuild state (update_and_rebuild.sh)
+    const [isRebuildAvailable, setIsRebuildAvailable] = useState(false);
+    const [isRebuilding, setIsRebuilding] = useState(false);
 
 
 
@@ -319,6 +333,8 @@ function Settings() {
             }
         } catch (error) {
             showToast(`${t('common.error')}: ${error}`, 'error');
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -484,6 +500,20 @@ function Settings() {
         }
     };
 
+    const handleTriggerLocalRebuild = async () => {
+        setIsRebuilding(true);
+        try {
+            const channel = formData.update_channel || 'stable';
+            await invoke('trigger_local_rebuild', { channel });
+            showToast(t('settings.about.rebuild_triggered_success', { defaultValue: '已在独立终端启动源码更新与构建 (update_and_rebuild.sh)' }), 'success');
+            setIsUpdateConfirmOpen(false);
+        } catch (error) {
+            showToast(`${t('settings.about.rebuild_failed', { defaultValue: '启动构建失败' })}: ${error}`, 'error');
+        } finally {
+            setIsRebuilding(false);
+        }
+    };
+
     // Handle opening cache clear dialog
     const handleOpenClearCacheDialog = async () => {
         try {
@@ -593,11 +623,16 @@ function Settings() {
                     </div>
 
                     <button
-                        className="px-4 py-2 bg-blue-500 text-white text-sm rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2 shadow-sm"
+                        className={`px-4 py-2 bg-blue-500 text-white text-sm rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2 shadow-sm ${isSaving ? 'opacity-75 cursor-not-allowed' : ''}`}
                         onClick={handleSave}
+                        disabled={isSaving}
                     >
-                        <Save className="w-4 h-4" />
-                        {t('settings.save')}
+                        {isSaving ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                        ) : (
+                            <Save className="w-4 h-4" />
+                        )}
+                        {isSaving ? t('common.saving', { defaultValue: '保存中...' }) : t('settings.save')}
                     </button>
                 </div>
 
@@ -1720,7 +1755,7 @@ function Settings() {
 
                                     {/* GitHub Card */}
                                     <a
-                                        href="https://github.com/lbjlaq/Antigravity-Manager"
+                                        href="https://github.com/weifeng0222/Antigravity-Manager"
                                         target="_blank"
                                         rel="noreferrer"
                                         className="bg-white dark:bg-base-100 p-4 rounded-2xl border border-gray-100 dark:border-base-300 shadow-sm hover:shadow-md hover:border-gray-300 dark:hover:border-gray-600 transition-all group flex flex-col items-center text-center gap-3 cursor-pointer"
@@ -1836,14 +1871,28 @@ function Settings() {
 
                                 {/* Check for Updates */}
                                 <div className="flex flex-col items-center gap-3">
-                                    <button
-                                        onClick={handleCheckUpdate}
-                                        disabled={isCheckingUpdate}
-                                        className="px-6 py-2.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white rounded-lg transition-all flex items-center gap-2 shadow-sm hover:shadow-md disabled:cursor-not-allowed"
-                                    >
-                                        <RefreshCw className={`w-4 h-4 ${isCheckingUpdate ? 'animate-spin' : ''}`} />
-                                        {isCheckingUpdate ? t('settings.about.checking_update') : t('settings.about.check_update')}
-                                    </button>
+                                    <div className="flex items-center gap-2.5 flex-wrap justify-center">
+                                        <button
+                                            onClick={handleCheckUpdate}
+                                            disabled={isCheckingUpdate}
+                                            className="px-6 py-2.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white rounded-lg transition-all flex items-center gap-2 shadow-sm hover:shadow-md disabled:cursor-not-allowed text-sm font-medium"
+                                        >
+                                            <RefreshCw className={`w-4 h-4 ${isCheckingUpdate ? 'animate-spin' : ''}`} />
+                                            {isCheckingUpdate ? t('settings.about.checking_update') : t('settings.about.check_update')}
+                                        </button>
+
+                                        {isRebuildAvailable && (
+                                            <button
+                                                onClick={handleTriggerLocalRebuild}
+                                                disabled={isRebuilding}
+                                                className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white rounded-lg transition-all flex items-center gap-2 shadow-sm hover:shadow-md disabled:cursor-not-allowed text-sm font-medium"
+                                                title={t('settings.about.local_rebuild_tooltip', { defaultValue: '拉取最新代码并保留/应用补丁重新编译安装' })}
+                                            >
+                                                <Terminal className={`w-4 h-4 ${isRebuilding ? 'animate-spin' : ''}`} />
+                                                {isRebuilding ? t('settings.about.rebuilding', { defaultValue: '正在启动终端...' }) : t('settings.about.rebuild_btn', { defaultValue: '源码更新与重构 (保留补丁)' })}
+                                            </button>
+                                        )}
+                                    </div>
 
                                     {/* Update Status */}
                                     {updateInfo && !isCheckingUpdate && (
@@ -1884,6 +1933,16 @@ function Settings() {
                                                                     {t('settings.about.upgrade_now_btn', { defaultValue: '立即自动更新' })}
                                                                 </button>
                                                             )
+                                                        )}
+                                                        {isRebuildAvailable && (
+                                                            <button
+                                                                onClick={handleTriggerLocalRebuild}
+                                                                disabled={isRebuilding}
+                                                                className="px-4 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg transition-all shadow-sm active:scale-95 flex items-center gap-1.5"
+                                                            >
+                                                                <Terminal className="w-3.5 h-3.5" />
+                                                                {t('settings.about.rebuild_btn_short', { defaultValue: '源码构建更新' })}
+                                                            </button>
                                                         )}
                                                         <a
                                                             href={updateInfo.downloadUrl}
@@ -2077,6 +2136,37 @@ function Settings() {
                                 </div>
                             )}
                         </div>
+
+                        {/* 本地源码更新与重构推荐选项 */}
+                        {isRebuildAvailable && (
+                            <div className="mt-3 p-3 bg-purple-50/80 dark:bg-purple-950/30 rounded-xl border border-purple-200/70 dark:border-purple-800/40 text-xs space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-1.5 font-bold text-purple-900 dark:text-purple-300">
+                                        <Terminal className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                                        <span>{t('settings.about.local_rebuild_card_title', { defaultValue: '推荐：源码更新与构建 (update_and_rebuild.sh)' })}</span>
+                                    </div>
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-200/60 dark:bg-purple-900/60 text-purple-800 dark:text-purple-300 font-medium">
+                                        {t('settings.about.patch_safe', { defaultValue: '保留本地与Cursor补丁' })}
+                                    </span>
+                                </div>
+                                <p className="text-[11px] text-purple-700/90 dark:text-purple-300/90 leading-relaxed">
+                                    {t('settings.about.local_rebuild_card_desc', {
+                                        defaultValue: '如果您自定义了功能补丁或使用了 Cursor 纯净流与流式清洗治理，建议使用源码构建更新。脚本将在独立终端中拉取上游最新版本、自动合并优化补丁并重新编译安装，避免官方安装包覆盖补丁。'
+                                    })}
+                                </p>
+                                <div className="flex justify-end pt-1">
+                                    <button
+                                        type="button"
+                                        onClick={handleTriggerLocalRebuild}
+                                        disabled={isRebuilding}
+                                        className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 active:scale-95 text-white font-medium rounded-lg text-xs flex items-center gap-1.5 transition-all shadow-sm disabled:cursor-not-allowed"
+                                    >
+                                        <Terminal className="w-3.5 h-3.5" />
+                                        {isRebuilding ? t('settings.about.rebuilding', { defaultValue: '正在启动终端...' }) : t('settings.about.run_rebuild_now', { defaultValue: '在终端中执行更新与重构' })}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </ModalDialog>
 

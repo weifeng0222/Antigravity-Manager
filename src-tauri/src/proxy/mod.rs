@@ -34,6 +34,8 @@ pub mod upstream; // 上游客户端
 pub mod video; // 视频处理模块
 
 pub use config::get_stream_timeout_config;
+pub use config::is_cursor_cleaner_enabled;
+pub use config::update_cursor_cleaner;
 pub use config::update_global_system_prompt_config;
 pub use config::update_image_thinking_mode;
 pub use config::update_multimodal_config;

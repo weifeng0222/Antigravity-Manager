@@ -750,7 +750,17 @@
             "update_dialog_title": "New Version Available",
             "update_confirm_desc": "A new version is available. Would you like to download and update now? The app will automatically restart once downloaded.",
             "current_version": "Current Version",
-            "latest_version_label": "Latest Version"
+            "latest_version_label": "Latest Version",
+            "rebuild_btn": "Rebuild from Source (Keep Patches)",
+            "rebuild_btn_short": "Source Rebuild Update",
+            "rebuilding": "Launching Terminal...",
+            "rebuild_triggered_success": "Update and rebuild script launched in independent terminal (update_and_rebuild.sh)",
+            "rebuild_failed": "Failed to launch build",
+            "local_rebuild_tooltip": "Pull latest upstream code, retain/apply patches, and recompile",
+            "local_rebuild_card_title": "Recommended: Rebuild from Source (update_and_rebuild.sh)",
+            "patch_safe": "Preserves Local & Cursor Patches",
+            "local_rebuild_card_desc": "If you are using customized patches or Cursor Pure Stream & Stream Sanitization, updating via source rebuild is recommended. The script pulls the latest version in an isolated terminal, merges optimized patches, and recompiles, preventing prebuilt binaries from overwriting your patches.",
+            "run_rebuild_now": "Execute Rebuild in Terminal"
         },
         "advanced_thinking": {
             "title": "Advanced Thinking & Global Config",
@@ -1031,7 +1041,11 @@
                 "payload_mode_full": "Full original",
                 "log_retention_days_label": "Request log retention (days)",
                 "thinking_retention_days_label": "Thinking-store retention (sliding window, days)",
-                "thinking_retention_days_desc": "Default is a 15-day sliding window. While the client session ID stays active, each request refreshes expiry; records are cleaned only after the window lapses with no requests."
+                "thinking_retention_days_desc": "Default is a 15-day sliding window. While the client session ID stays active, each request refreshes expiry; records are cleaned only after the window lapses with no requests.",
+                "cursor_cleaner_label": "Cursor Clean Stream & Dot Filter",
+                "cursor_cleaner_desc": "Specifically designed for Cursor, intercepts and filters out dot cascades, action planning narration (folded into thinking), and empty heartbeats in SSE streams.",
+                "cursor_cleaner_started": "Cursor cleaner enabled",
+                "cursor_cleaner_stopped": "Cursor cleaner disabled"
             },
             "opencode_sync": {
                 "card_title": "OpenCode",
@@ -1181,7 +1195,9 @@
                 "guide_preset_relay_desc": "Recommended: <1>150 ~ 300 turns</1>. Memory prioritized for connection pools; long-turn cold histories safely offloaded to SQLite.",
                 "guide_preset_cluster_title": "10K ~ 100K+ Massive Cluster:",
                 "guide_preset_cluster_desc": "Recommended: <1>50 ~ 100 turns</1>. Effortlessly sustains tens of thousands of concurrent sessions; lock-free WAL index ensures sub-second responses.",
-                "gemini_soft_budget_note": "⚠️ Thinking Budget Behavior: Google Gemini upstream treats thinkingBudget as a heuristic soft target. For long prompts, complex code reasoning, or agent tasks, upstream models dynamically expand their chain-of-thought and may exceed configured budgets; set to 0 to completely disable thinking."
+                "gemini_soft_budget_note": "⚠️ Thinking Budget Behavior: Google Gemini upstream treats thinkingBudget as a heuristic soft target. For long prompts, complex code reasoning, or agent tasks, upstream models dynamically expand their chain-of-thought and may exceed configured budgets; set to 0 to completely disable thinking.",
+                "store_enabled_started": "Server-side thinking store & signature backfill enabled",
+                "store_enabled_stopped": "Server-side thinking store & signature backfill disabled"
             },
             "stream_timeout_settings": {
                 "title": "Stream Timeout Settings"
@@ -1671,6 +1687,12 @@
                 "patch_normal_detected": "Claude Desktop is not currently running. Micro-patch will be applied directly to the target executable.",
                 "patch_feature_title": "8k Deep Compaction Micro-Patch",
                 "patch_feature_desc": "Retains the latest 8k active message context and condenses older history 100%, exceeding 60%+ compression. Automatically creates a .bak backup for one-click restoration."
+            },
+            "cursor": {
+                "title": "Cursor Series (Cursor IDE / Agent)",
+                "tag": "Pure Stream & Sanitization",
+                "cleaner_title": "Cursor Pure Stream & Dot Cleaner",
+                "cleaner_desc": "Tailored for Cursor to intercept continuous dot cascades, action transitions (collapsed into thinking drawers), and empty heartbeats across SSE streams in real time. Bidirectionally normalizes OpenAI Responses/Chat and Anthropic Messages at the gateway to eliminate Composer blank screens and empty block errors."
             }
         }
     },
@@ -1853,7 +1875,10 @@
         "toast": {
             "not_ready": "Update artifacts are not ready yet. Will retry later.",
             "failed": "Auto-update failed"
-        }
+        },
+        "btn_rebuild": "Source Rebuild (Keep Patches)",
+        "rebuilding": "Launching Terminal...",
+        "rebuild_launched": "Update and rebuild script launched in independent terminal (update_and_rebuild.sh)"
     },
     "login": {
         "title": "Secure Access Control",

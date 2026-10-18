@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { RefreshCw, X, Bot } from 'lucide-react';
 import {
@@ -218,7 +219,7 @@ export function DroidSyncModal({ apiKey, getFormattedProxyUrl, onClose, onSyncDo
     const existingCount = previewModels.filter(m => !m.isAg).length;
     const agCount = previewModels.filter(m => m.isAg).length;
 
-    return (
+    return createPortal(
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
             <div className="bg-white dark:bg-base-100 rounded-2xl shadow-2xl border border-gray-200 dark:border-base-300 w-full max-w-2xl max-h-[85vh] overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col">
                 {/* Header */}
@@ -344,6 +345,7 @@ export function DroidSyncModal({ apiKey, getFormattedProxyUrl, onClose, onSyncDo
                     </button>
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 }

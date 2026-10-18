@@ -465,7 +465,7 @@ function Accounts() {
   const [isRefreshConfirmOpen, setIsRefreshConfirmOpen] = useState(false);
 
   const handleRefreshClick = () => {
-    setIsRefreshConfirmOpen(true);
+    executeRefresh();
   };
 
   const executeRefresh = async () => {
@@ -755,7 +755,7 @@ function Accounts() {
       />
 
       {/* 顶部工具栏:搜索、过滤和操作按钮 */}
-      <div className="flex-none flex items-center gap-2">
+      <div className="flex-none flex items-center gap-2 relative z-[100]">
         {/* 搜索框 - 响应式:大屏显示输入框,小屏显示图标 */}
         <div className="hidden lg:block flex-none w-40 relative transition-all focus-within:w-48">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -921,13 +921,13 @@ function Accounts() {
         <div className="flex-1 min-w-[8px]"></div>
 
         {/* 操作按钮组 */}
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0 relative z-[100]">
           <AddAccountDialog onAdd={handleAddAccount} showText={false} />
 
           {selectedIds.size > 0 && (
             <>
               <button
-                className="px-2.5 py-2 bg-red-500 text-white text-xs font-medium rounded-lg hover:bg-red-600 transition-colors flex items-center gap-1.5 shadow-sm"
+                className="relative z-[100] px-2.5 py-2 bg-red-500 text-white text-xs font-medium rounded-lg hover:bg-red-600 transition-colors flex items-center gap-1.5 shadow-sm"
                 onClick={handleBatchDelete}
                 title={t("accounts.delete_selected", {
                   count: selectedIds.size,
@@ -939,7 +939,7 @@ function Accounts() {
                 </span>
               </button>
               <button
-                className="px-2.5 py-2 bg-orange-500 text-white text-xs font-medium rounded-lg hover:bg-orange-600 transition-colors flex items-center gap-1.5 shadow-sm"
+                className="relative z-[100] px-2.5 py-2 bg-orange-500 text-white text-xs font-medium rounded-lg hover:bg-orange-600 transition-colors flex items-center gap-1.5 shadow-sm"
                 onClick={() => handleBatchToggleProxy(false)}
                 title={t("accounts.disable_proxy_selected", {
                   count: selectedIds.size,
@@ -953,7 +953,7 @@ function Accounts() {
                 </span>
               </button>
               <button
-                className="px-2.5 py-2 bg-green-500 text-white text-xs font-medium rounded-lg hover:bg-green-600 transition-colors flex items-center gap-1.5 shadow-sm"
+                className="relative z-[100] px-2.5 py-2 bg-green-500 text-white text-xs font-medium rounded-lg hover:bg-green-600 transition-colors flex items-center gap-1.5 shadow-sm"
                 onClick={() => handleBatchToggleProxy(true)}
                 title={t("accounts.enable_proxy_selected", {
                   count: selectedIds.size,
@@ -970,7 +970,7 @@ function Accounts() {
           )}
 
           <button
-            className={`px-2.5 py-2 bg-blue-500 text-white text-xs font-medium rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-1.5 shadow-sm ${isRefreshing ? "opacity-70 cursor-not-allowed" : ""}`}
+            className={`relative z-[100] px-2.5 py-2 bg-blue-500 text-white text-xs font-medium rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer ${isRefreshing ? "opacity-70 cursor-not-allowed" : ""}`}
             onClick={handleRefreshClick}
             disabled={isRefreshing}
             title={
@@ -992,7 +992,7 @@ function Accounts() {
           </button>
 
           <button
-            className={`px-2.5 py-2 bg-orange-500 text-white text-xs font-medium rounded-lg hover:bg-orange-600 transition-colors flex items-center gap-1.5 shadow-sm ${isWarmuping ? "opacity-70 cursor-not-allowed" : ""}`}
+            className={`relative z-[100] px-2.5 py-2 bg-orange-500 text-white text-xs font-medium rounded-lg hover:bg-orange-600 transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer ${isWarmuping ? "opacity-70 cursor-not-allowed" : ""}`}
             onClick={() => setIsWarmupConfirmOpen(true)}
             disabled={isWarmuping}
             title={
@@ -1016,7 +1016,7 @@ function Accounts() {
           <div className="w-px h-4 bg-gray-200 dark:bg-gray-700 self-center mx-1 shrink-0"></div>
 
           <button
-            className="px-2.5 py-2 border border-gray-200 dark:border-base-300 text-gray-700 dark:text-gray-300 text-xs font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-base-200 transition-colors flex items-center gap-1.5"
+            className="relative z-[100] px-2.5 py-2 border border-gray-200 dark:border-base-300 text-gray-700 dark:text-gray-300 text-xs font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-base-200 transition-colors flex items-center gap-1.5 cursor-pointer"
             onClick={handleImportJson}
             title={t("accounts.import_json")}
           >
@@ -1027,7 +1027,7 @@ function Accounts() {
           </button>
 
           <button
-            className="px-2.5 py-2 border border-gray-200 dark:border-base-300 text-gray-700 dark:text-gray-300 text-xs font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-base-200 transition-colors flex items-center gap-1.5"
+            className="relative z-[100] px-2.5 py-2 border border-gray-200 dark:border-base-300 text-gray-700 dark:text-gray-300 text-xs font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-base-200 transition-colors flex items-center gap-1.5 cursor-pointer"
             onClick={handleExport}
             title={
               selectedIds.size > 0

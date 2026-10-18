@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { X, Sparkles, Loader2, CheckCircle, RotateCcw } from 'lucide-react';
+import { X, Sparkles, Loader2, CheckCircle, RotateCcw, Terminal } from 'lucide-react';
 import { request as invoke } from '../utils/request';
 import { useTranslation } from 'react-i18next';
 import { Update, check as tauriCheck } from '@tauri-apps/plugin-updater';
@@ -31,6 +31,8 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ onClose 
   const [isClosing, setIsClosing] = useState(false);
   const [updateState, setUpdateState] = useState<UpdateState>('checking');
   const [downloadProgress, setDownloadProgress] = useState(0);
+  const [isRebuildAvailable, setIsRebuildAvailable] = useState(false);
+  const [isRebuilding, setIsRebuilding] = useState(false);
   const downloadStarted = useRef(false);
 
   useEffect(() => {
@@ -39,6 +41,13 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ onClose 
 
   const checkAndDownload = async () => {
     try {
+      try {
+        const canRebuild = await invoke<boolean>('check_rebuild_available');
+        setIsRebuildAvailable(canRebuild);
+      } catch {
+        setIsRebuildAvailable(false);
+      }
+
       // 1. Check for updates via backend
       const info = await invoke<UpdateInfo>('check_for_updates');
       if (!info.has_update) {
@@ -133,6 +142,9 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ onClose 
       console.error('Auto update failed:', errorMsg);
       setUpdateState('error');
       showToast(`${t('update_notification.toast.failed')}: ${errorMsg}`, 'error');
+      if (!isVisible) {
+        onClose();
+      }
     }
   };
 
@@ -144,13 +156,31 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ onClose 
     }
   };
 
+  const handleTriggerLocalRebuild = async () => {
+    setIsRebuilding(true);
+    try {
+      await invoke('trigger_local_rebuild', { channel: updateInfo?.channel || 'stable' });
+      showToast(
+        t('update_notification.rebuild_launched', {
+          defaultValue: '已在独立终端启动源码更新与构建 (update_and_rebuild.sh)',
+        }),
+        'success'
+      );
+      handleClose();
+    } catch (err) {
+      showToast(`${t('common.error')}: ${err}`, 'error');
+    } finally {
+      setIsRebuilding(false);
+    }
+  };
+
   const handleClose = () => {
     setIsClosing(true);
     setIsVisible(false);
     setTimeout(onClose, 400);
   };
 
-  if (updateState === 'none') {
+  if (updateState === 'none' || (!isVisible && !isClosing)) {
     return null;
   }
 
@@ -159,7 +189,7 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ onClose 
       className={`
         fixed top-6 right-6 z-[100]
         transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]
-        ${isVisible && !isClosing ? 'translate-y-0 opacity-100 scale-100' : '-translate-y-4 opacity-0 scale-95'}
+        ${isVisible && !isClosing ? 'translate-y-0 opacity-100 scale-100 pointer-events-auto' : '-translate-y-4 opacity-0 scale-95 pointer-events-none'}
       `}
     >
       <div className="
@@ -353,6 +383,33 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ onClose 
             >
               <RotateCcw className="w-4 h-4" />
               <span>{t('common.retry')}</span>
+            </button>
+          )}
+
+          {/* Local source rebuild button (update_and_rebuild.sh) */}
+          {isRebuildAvailable && (
+            <button
+              onClick={handleTriggerLocalRebuild}
+              disabled={isRebuilding}
+              className="
+                w-full mt-2.5 group/btn
+                relative overflow-hidden
+                bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/50
+                text-purple-700 dark:text-purple-300 border border-purple-200/80 dark:border-purple-800/60
+                text-xs font-semibold
+                py-2 px-3 rounded-xl
+                transition-all duration-200
+                flex items-center justify-center gap-1.5
+                active:scale-[0.98]
+              "
+              title="使用本地脚本更新并在终端重构编译，完整保留所有本地定制与 Cursor 补丁"
+            >
+              <Terminal className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+              <span>
+                {isRebuilding
+                  ? t('update_notification.rebuilding', { defaultValue: '正在启动终端...' })
+                  : t('update_notification.btn_rebuild', { defaultValue: '源码重构更新 (保留补丁)' })}
+              </span>
             </button>
           )}
         </div>

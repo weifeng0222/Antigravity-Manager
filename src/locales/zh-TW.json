@@ -705,7 +705,17 @@
             "update_dialog_title": "發現新版本可用",
             "update_confirm_desc": "檢測到有新版本發布。是否立即下載更新？用戶端將在下載完成後自動熱重新啟動以套用更新。",
             "current_version": "目前版本",
-            "latest_version_label": "最新版本"
+            "latest_version_label": "最新版本",
+            "rebuild_btn": "原始碼更新與重構 (保留補丁)",
+            "rebuild_btn_short": "原始碼建構更新",
+            "rebuilding": "正在啟動終端機...",
+            "rebuild_triggered_success": "已在獨立終端機啟動原始碼更新與建構 (update_and_rebuild.sh)",
+            "rebuild_failed": "啟動建構失敗",
+            "local_rebuild_tooltip": "拉取最新代碼並保留/套用補丁重新編譯安裝",
+            "local_rebuild_card_title": "推薦：原始碼更新與建構 (update_and_rebuild.sh)",
+            "patch_safe": "保留本地與Cursor補丁",
+            "local_rebuild_card_desc": "如果您自定義了功能補丁或使用了 Cursor 純淨流與流式清洗治理，建議使用原始碼建構更新。指令碼將在獨立終端機中拉取上游最新版本、自動合併優化補丁並重新編譯安裝，避免官方安裝包覆蓋補丁。",
+            "run_rebuild_now": "在終端機中執行更新與重構"
         },
         "debug": {
             "debug_logging": "除錯日誌",
@@ -986,7 +996,11 @@
                 "payload_mode_full": "完整原文",
                 "log_retention_days_label": "請求日誌保留天數",
                 "thinking_retention_days_label": "思考區塊保留天數（滑動窗口）",
-                "thinking_retention_days_desc": "預設 15 天滑動窗口。只要用戶端 sessionID 仍在活躍窗口內，每次請求都會自動重新整理過期時間。"
+                "thinking_retention_days_desc": "預設 15 天滑動窗口。只要用戶端 sessionID 仍在活躍窗口內，每次請求都會自動重新整理過期時間。",
+                "cursor_cleaner_label": "Cursor 純淨流與點號清洗",
+                "cursor_cleaner_desc": "專為 Cursor 設計，即時攔截過濾 SSE 流中的連續點號瀑布、行動過渡句（自動折疊進思考抽屜）與空心跳",
+                "cursor_cleaner_started": "Cursor 純淨流已啟動",
+                "cursor_cleaner_stopped": "Cursor 純淨流已停止"
             },
             "cloudflared": {
                 "title": "公網訪問 (Cloudflared)",
@@ -1125,7 +1139,9 @@
                 "clear_confirm_btn": "確認清空",
                 "clear_success": "已成功清空思考區塊儲存 (共清理 {{count}} 條歷史記錄)",
                 "clear_error": "清空思考區塊失敗: {{error}}",
-                "gemini_soft_budget_note": "⚠️ 思考預算特性說明：Google Gemini 上游將 thinkingBudget 視為啟發式偏好（Soft Target）。面對超長 Prompt、複雜程式碼推演或 Agent 任務時，上游推理引擎會自動深入展開思考鏈，可能突破所設數值；設定為 0 則徹底關閉思考。"
+                "gemini_soft_budget_note": "⚠️ 思考預算特性說明：Google Gemini 上游將 thinkingBudget 視為啟發式偏好（Soft Target）。面對超長 Prompt、複雜程式碼推演或 Agent 任務時，上游推理引擎會自動深入展開思考鏈，可能突破所設數值；設定為 0 則徹底關閉思考。",
+                "store_enabled_started": "伺服端思考塊與簽名回填已啟動",
+                "store_enabled_stopped": "伺服端思考塊與簽名回填已停止"
             },
             "stream_timeout_settings": {
                 "title": "串流逾時設定 (Stream Timeout Settings)"
@@ -1680,6 +1696,12 @@
                 "patch_normal_detected": "當前未檢測到運行中的 Claude Desktop，將直接對目標可執行檔進行微創注入。",
                 "patch_feature_title": "8k 深度封存微創等長補丁",
                 "patch_feature_desc": "保留最新 8k 活躍訊息上下文，超出歷史 100% 濃縮封存，壓縮率突破 60%+。系統將自動建立 .bak 安全備份，支援隨時一鍵還原。"
+            },
+            "cursor": {
+                "title": "Cursor 系列 (Cursor IDE / Agent)",
+                "tag": "純淨流與流式清洗",
+                "cleaner_title": "Cursor 純淨流與點號清洗 (Cursor Pure Stream & Dot Cleaner)",
+                "cleaner_desc": "專為 Cursor 設計，即時攔截過濾 SSE 流中的連續點號瀑布、行動過渡句（自動折疊進思考抽屜）與空心跳。在網關層雙向相容 OpenAI Responses / Chat Completions 與 Anthropic Messages 協定，徹底消除 Composer 白屏與空思考塊異常。"
             }
         }
     },
@@ -1829,7 +1851,10 @@
         },
         "restart_prompt": "更新已準備就緒，重新啟動應用程式後即可完成升級。",
         "btn_restart": "立即重新啟動",
-        "btn_later": "稍後"
+        "btn_later": "稍後",
+        "btn_rebuild": "原始碼更新與重構 (保留補丁)",
+        "rebuilding": "正在啟動終端機...",
+        "rebuild_launched": "已在獨立終端機啟動原始碼更新與建構 (update_and_rebuild.sh)"
     },
     "login": {
         "title": "安全存取控制",
